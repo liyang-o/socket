@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from .market_calendar import market_time_label
 from .market_data import Bar
 
 
@@ -17,6 +18,7 @@ class StrategyPoint:
     """Price bar enriched with indicator and signal state."""
 
     time: str
+    time_et: str
     open: float
     high: float
     low: float
@@ -86,6 +88,7 @@ def sma_crossover_signals(
         points.append(
             StrategyPoint(
                 time=bar.time,
+                time_et=bar.time_et or market_time_label(bar.time),
                 open=bar.open,
                 high=bar.high,
                 low=bar.low,
