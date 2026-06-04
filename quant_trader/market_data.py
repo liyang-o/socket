@@ -161,9 +161,11 @@ def sample_intraday(symbol: str, points: int = 180) -> list[Bar]:
     bars: list[Bar] = []
     previous_close = float(base_price)
     for index in range(points):
-        wave = math.sin(index / 8 + seed) * 0.009
+        progress = index / max(points - 1, 1)
+        day_trend = trend * progress
+        wave = math.sin(index / 8 + seed) * 0.012
         pulse = math.sin(index / 21 + seed / 7) * 0.006
-        close = max(1.0, previous_close * (1 + trend + wave + pulse))
+        close = max(1.0, base_price * (1 + day_trend + wave + pulse))
         high = max(previous_close, close) * (1 + 0.0025)
         low = min(previous_close, close) * (1 - 0.0025)
         volume = 50_000 + ((seed * 97 + index * 7919) % 750_000)

@@ -24,7 +24,7 @@
 本项目只依赖 Python 标准库，Python 3.10+ 即可运行。
 
 ```bash
-python -m quant_trader.server --host 127.0.0.1 --port 8000
+python3 -m quant_trader.server --host 127.0.0.1 --port 8000
 ```
 
 打开：
@@ -36,7 +36,7 @@ http://127.0.0.1:8000
 如果希望强制离线演示：
 
 ```bash
-QUANT_TRADER_OFFLINE=1 python -m quant_trader.server
+QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 ```
 
 ## API
@@ -87,7 +87,7 @@ tests/
 ## 测试
 
 ```bash
-python -m unittest discover -s tests
+python3 -m unittest discover -s tests
 ```
 
 ## 后续扩展方向

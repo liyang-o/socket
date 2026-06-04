@@ -84,7 +84,7 @@ y = top + (max_price - price) / (max_price - min_price) * plot_height
 ## 6. 如何运行
 
 ```bash
-python -m quant_trader.server --host 127.0.0.1 --port 8000
+python3 -m quant_trader.server --host 127.0.0.1 --port 8000
 ```
 
 访问：
@@ -96,13 +96,13 @@ http://127.0.0.1:8000
 离线模式：
 
 ```bash
-QUANT_TRADER_OFFLINE=1 python -m quant_trader.server
+QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 ```
 
 运行测试：
 
 ```bash
-python -m unittest discover -s tests
+python3 -m unittest discover -s tests
 ```
 
 ## 7. 接入真实券商前必须补齐的内容
