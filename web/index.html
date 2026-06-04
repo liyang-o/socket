@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quant Paper Trader</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">SMA Crossover · Paper Trading · Intraday Dashboard</p>
+        <h1>量化模拟交易可视化</h1>
+        <p class="hero-text">
+          使用实时/延迟日内行情运行移动均线交叉策略，展示当日收益、持仓、交易记录与股票涨跌曲线。
+        </p>
+      </div>
+      <div class="status-card">
+        <span id="sourceBadge">等待行情</span>
+        <strong id="updatedAt">--</strong>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel controls">
+        <label>
+          股票代码
+          <input id="symbolsInput" value="AAPL,MSFT,NVDA" autocomplete="off" />
+        </label>
+        <label>
+          初始资金
+          <input id="cashInput" type="number" min="1000" step="1000" value="100000" />
+        </label>
+        <label>
+          Fast SMA
+          <input id="fastInput" type="number" min="2" value="12" />
+        </label>
+        <label>
+          Slow SMA
+          <input id="slowInput" type="number" min="3" value="26" />
+        </label>
+        <button id="runButton">运行模拟</button>
+        <label class="check-row">
+          <input id="autoRefresh" type="checkbox" checked />
+          60 秒自动刷新
+        </label>
+      </section>
+
+      <section class="metrics">
+        <article class="metric">
+          <span>组合权益</span>
+          <strong id="equityMetric">--</strong>
+        </article>
+        <article class="metric">
+          <span>当日收益</span>
+          <strong id="returnMetric">--</strong>
+        </article>
+        <article class="metric">
+          <span>盈亏</span>
+          <strong id="pnlMetric">--</strong>
+        </article>
+        <article class="metric">
+          <span>交易次数</span>
+          <strong id="tradesMetric">--</strong>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="panel chart-panel">
+          <div class="section-title">
+            <div>
+              <h2>所选股票涨跌曲线</h2>
+              <p>收盘价、Fast SMA、Slow SMA 与买卖信号</p>
+            </div>
+            <select id="symbolSelect" aria-label="选择股票"></select>
+          </div>
+          <div id="priceChart" class="chart"></div>
+        </article>
+
+        <article class="panel chart-panel">
+          <div class="section-title">
+            <div>
+              <h2>权益曲线</h2>
+              <p>纸面账户随每根日内 bar 变化</p>
+            </div>
+          </div>
+          <div id="equityChart" class="chart"></div>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>持仓</h2>
+          <div id="positionsTable" class="table"></div>
+        </article>
+        <article class="panel">
+          <h2>交易记录</h2>
+          <div id="tradesTable" class="table"></div>
+        </article>
+      </section>
+
+      <p id="errorBox" class="error" hidden></p>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
