@@ -1,0 +1,476 @@
+const state = {
+  data: null,
+  mode: null,
+  selectedSymbol: null,
+  timer: null,
+};
+
+const STATIC_DATA_URL = "data/latest.json";
+
+const els = {
+  symbolsInput: document.querySelector("#symbolsInput"),
+  cashInput: document.querySelector("#cashInput"),
+  fastInput: document.querySelector("#fastInput"),
+  slowInput: document.querySelector("#slowInput"),
+  runButton: document.querySelector("#runButton"),
+  autoRefresh: document.querySelector("#autoRefresh"),
+  symbolSelect: document.querySelector("#symbolSelect"),
+  equityMetric: document.querySelector("#equityMetric"),
+  returnMetric: document.querySelector("#returnMetric"),
+  pnlMetric: document.querySelector("#pnlMetric"),
+  tradesMetric: document.querySelector("#tradesMetric"),
+  sourceBadge: document.querySelector("#sourceBadge"),
+  updatedAt: document.querySelector("#updatedAt"),
+  priceChart: document.querySelector("#priceChart"),
+  equityChart: document.querySelector("#equityChart"),
+  positionsTable: document.querySelector("#positionsTable"),
+  tradesTable: document.querySelector("#tradesTable"),
+  errorBox: document.querySelector("#errorBox"),
+};
+
+els.runButton.addEventListener("click", () => runSimulation());
+els.symbolSelect.addEventListener("change", () => {
+  state.selectedSymbol = els.symbolSelect.value;
+  render();
+});
+els.autoRefresh.addEventListener("change", scheduleRefresh);
+
+runSimulation();
+scheduleRefresh();
+
+function scheduleRefresh() {
+  if (state.timer) {
+    clearInterval(state.timer);
+    state.timer = null;
+  }
+  if (els.autoRefresh.checked) {
+    state.timer = setInterval(() => runSimulation({ silent: true }), 60_000);
+  }
+}
+
+async function runSimulation(options = {}) {
+  setLoading(true, options.silent);
+  hideError();
+
+  const params = new URLSearchParams({
+    symbols: els.symbolsInput.value,
+    cash: els.cashInput.value,
+    fast: els.fastInput.value,
+    slow: els.slowInput.value,
+  });
+
+  try {
+    const { payload, mode } = await loadSimulation(params);
+    state.data = payload;
+    state.mode = mode;
+    syncControlsFromPayload(payload, mode);
+    const symbols = Object.keys(payload.symbols);
+    if (!symbols.includes(state.selectedSymbol)) {
+      state.selectedSymbol = symbols[0];
+    }
+    render();
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function loadSimulation(params) {
+  if (isGitHubPages()) {
+    return { payload: await fetchStaticSnapshot(), mode: "static" };
+  }
+
+  try {
+    return { payload: await fetchApiSimulation(params), mode: "api" };
+  } catch (apiError) {
+    const payload = await fetchStaticSnapshot();
+    payload.metadata = {
+      ...(payload.metadata || {}),
+      api_error: apiError.message,
+    };
+    return { payload, mode: "static" };
+  }
+}
+
+async function fetchApiSimulation(params) {
+  const response = await fetch(`/api/simulate?${params.toString()}`);
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "请求失败");
+  }
+  return payload;
+}
+
+async function fetchStaticSnapshot() {
+  const response = await fetch(`${STATIC_DATA_URL}?t=${Date.now()}`);
+  if (!response.ok) {
+    throw new Error("无法加载静态快照 data/latest.json");
+  }
+  return response.json();
+}
+
+function isGitHubPages() {
+  return window.location.hostname.endsWith("github.io");
+}
+
+function syncControlsFromPayload(payload, mode) {
+  const symbols = Object.keys(payload.symbols);
+  const parameters = payload.parameters || {};
+  if (mode === "static") {
+    els.symbolsInput.value = symbols.join(",");
+    els.cashInput.value = payload.portfolio.initial_cash;
+    els.fastInput.value = parameters.fast_window || els.fastInput.value;
+    els.slowInput.value = parameters.slow_window || els.slowInput.value;
+  }
+
+  const isStatic = mode === "static";
+  for (const input of [els.symbolsInput, els.cashInput, els.fastInput, els.slowInput]) {
+    input.disabled = isStatic;
+    input.title = isStatic ? "GitHub Pages 静态模式下参数由 Actions 工作流生成" : "";
+  }
+}
+
+function render() {
+  if (!state.data) return;
+
+  renderMetrics(state.data.portfolio);
+  renderSymbolOptions(Object.keys(state.data.symbols));
+
+  const selected = state.data.symbols[state.selectedSymbol];
+  const sources = Object.values(state.data.portfolio.sources);
+  const dataSourceText = sources.every((source) => source === "yahoo")
+    ? "Yahoo Finance"
+    : "样例行情兜底";
+  const sourceText = state.mode === "static"
+    ? `GitHub Pages 快照 · ${dataSourceText}`
+    : dataSourceText;
+  els.sourceBadge.textContent = sourceText;
+  els.updatedAt.textContent = state.mode === "static"
+    ? `生成于 ${dateTimeLabel(state.data.metadata?.generated_at)}`
+    : new Date().toLocaleTimeString();
+
+  renderPriceChart(selected.bars, selected.trades);
+  renderEquityChart(selected.equity_curve);
+  renderPositionsTable(state.data.portfolio.positions);
+  renderTradesTable(selected.trades);
+}
+
+function renderMetrics(portfolio) {
+  els.equityMetric.textContent = money(portfolio.equity);
+  els.returnMetric.textContent = `${portfolio.daily_return_pct.toFixed(2)}%`;
+  els.pnlMetric.textContent = money(portfolio.pnl);
+  els.tradesMetric.textContent = portfolio.total_trades;
+
+  setTone(els.returnMetric, portfolio.daily_return_pct);
+  setTone(els.pnlMetric, portfolio.pnl);
+}
+
+function renderSymbolOptions(symbols) {
+  els.symbolSelect.innerHTML = "";
+  for (const symbol of symbols) {
+    const option = document.createElement("option");
+    option.value = symbol;
+    option.textContent = symbol;
+    option.selected = symbol === state.selectedSymbol;
+    els.symbolSelect.append(option);
+  }
+}
+
+function renderPriceChart(points, trades) {
+  if (!points.length) {
+    els.priceChart.innerHTML = '<p class="empty">没有行情数据</p>';
+    return;
+  }
+
+  const values = points.flatMap((point) =>
+    [point.close, point.fast_sma, point.slow_sma].filter((value) => value !== null),
+  );
+  const scale = makeScale(points.length, values, 760, 330);
+  const svg = baseSvg(scale.width, scale.height);
+
+  drawGrid(svg, scale);
+  drawLine(svg, points.map((point) => point.close), scale, "#9be7ff", 3);
+  drawLine(svg, points.map((point) => point.fast_sma), scale, "#2ee59d", 1.8);
+  drawLine(svg, points.map((point) => point.slow_sma), scale, "#ffd166", 1.8);
+  drawTradeMarkers(svg, points, trades, scale);
+  drawLegend(svg, [
+    ["Close", "#9be7ff"],
+    ["Fast SMA", "#2ee59d"],
+    ["Slow SMA", "#ffd166"],
+    ["Buy/Sell", "#ff6b7a"],
+  ]);
+
+  els.priceChart.replaceChildren(svg);
+}
+
+function renderEquityChart(points) {
+  if (!points.length) {
+    els.equityChart.innerHTML = '<p class="empty">没有权益数据</p>';
+    return;
+  }
+
+  const values = points.map((point) => point.equity);
+  const scale = makeScale(points.length, values, 560, 330);
+  const svg = baseSvg(scale.width, scale.height);
+  drawGrid(svg, scale, (value) => money(value));
+  drawLine(svg, values, scale, "#6fb6ff", 3);
+  drawLegend(svg, [["Equity", "#6fb6ff"]]);
+  els.equityChart.replaceChildren(svg);
+}
+
+function renderPositionsTable(positions) {
+  if (!positions.length) {
+    els.positionsTable.innerHTML = '<p class="empty">当前没有持仓</p>';
+    return;
+  }
+
+  els.positionsTable.innerHTML = table(
+    ["股票", "数量", "均价", "最新价", "市值", "浮动盈亏"],
+    positions.map((row) => [
+      row.symbol,
+      row.quantity.toFixed(4),
+      money(row.average_price),
+      money(row.last_price),
+      money(row.market_value),
+      toneText(row.unrealized_pnl, money(row.unrealized_pnl)),
+    ]),
+  );
+}
+
+function renderTradesTable(trades) {
+  if (!trades.length) {
+    els.tradesTable.innerHTML = '<p class="empty">所选股票暂无交易</p>';
+    return;
+  }
+
+  els.tradesTable.innerHTML = table(
+    ["时间", "方向", "价格", "数量", "手续费", "剩余现金"],
+    trades
+      .slice()
+      .reverse()
+      .map((trade) => [
+        timeLabel(trade.time),
+        trade.side === "buy" ? "买入" : "卖出",
+        money(trade.price),
+        trade.quantity.toFixed(4),
+        money(trade.commission),
+        money(trade.cash_after),
+      ]),
+  );
+}
+
+function makeScale(count, values, width, height) {
+  const padding = { top: 26, right: 24, bottom: 34, left: 62 };
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const spread = Math.max(maxValue - minValue, Math.abs(maxValue) * 0.01, 1);
+  const min = minValue - spread * 0.08;
+  const max = maxValue + spread * 0.08;
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+
+  return {
+    width,
+    height,
+    padding,
+    min,
+    max,
+    x: (index) => padding.left + (plotWidth * index) / Math.max(count - 1, 1),
+    y: (value) => padding.top + ((max - value) / (max - min)) * plotHeight,
+  };
+}
+
+function baseSvg(width, height) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("role", "img");
+  return svg;
+}
+
+function drawGrid(svg, scale, labelFormatter = compactNumber) {
+  const { width, height, padding } = scale;
+  const grid = document.createElementNS(svg.namespaceURI, "g");
+  grid.setAttribute("stroke", "rgba(147, 164, 196, 0.18)");
+  grid.setAttribute("stroke-width", "1");
+
+  for (let index = 0; index <= 4; index += 1) {
+    const y = padding.top + ((height - padding.top - padding.bottom) * index) / 4;
+    grid.append(line(padding.left, y, width - padding.right, y));
+
+    const value = scale.max - ((scale.max - scale.min) * index) / 4;
+    const label = text(8, y + 4, labelFormatter(value));
+    label.setAttribute("class", "axis-label");
+    svg.append(label);
+  }
+
+  for (let index = 0; index <= 6; index += 1) {
+    const x = padding.left + ((width - padding.left - padding.right) * index) / 6;
+    grid.append(line(x, padding.top, x, height - padding.bottom));
+  }
+  svg.prepend(grid);
+}
+
+function drawLine(svg, values, scale, color, width) {
+  const segments = [];
+  let current = [];
+
+  values.forEach((value, index) => {
+    if (value === null || Number.isNaN(value)) {
+      if (current.length) segments.push(current);
+      current = [];
+      return;
+    }
+    current.push([scale.x(index), scale.y(value)]);
+  });
+  if (current.length) segments.push(current);
+
+  for (const segment of segments) {
+    if (segment.length < 2) continue;
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    path.setAttribute("d", segment.map(([x, y], index) => `${index ? "L" : "M"} ${x} ${y}`).join(" "));
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", color);
+    path.setAttribute("stroke-width", width);
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    svg.append(path);
+  }
+}
+
+function drawTradeMarkers(svg, points, trades, scale) {
+  const tradeByTime = new Map(trades.map((trade) => [trade.time, trade]));
+  points.forEach((point, index) => {
+    const trade = tradeByTime.get(point.time);
+    if (!trade) return;
+
+    const marker = document.createElementNS(svg.namespaceURI, "circle");
+    marker.setAttribute("cx", scale.x(index));
+    marker.setAttribute("cy", scale.y(point.close));
+    marker.setAttribute("r", "5.5");
+    marker.setAttribute("fill", trade.side === "buy" ? "#2ee59d" : "#ff6b7a");
+    marker.setAttribute("stroke", "#07101f");
+    marker.setAttribute("stroke-width", "2");
+    svg.append(marker);
+  });
+}
+
+function drawLegend(svg, entries) {
+  const group = document.createElementNS(svg.namespaceURI, "g");
+  entries.forEach(([label, color], index) => {
+    const x = 70 + index * 112;
+    const y = 18;
+    const dot = document.createElementNS(svg.namespaceURI, "circle");
+    dot.setAttribute("cx", x);
+    dot.setAttribute("cy", y - 4);
+    dot.setAttribute("r", "4");
+    dot.setAttribute("fill", color);
+    group.append(dot);
+
+    const labelNode = text(x + 10, y, label);
+    labelNode.setAttribute("class", "axis-label");
+    group.append(labelNode);
+  });
+  svg.append(group);
+}
+
+function line(x1, y1, x2, y2) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  node.setAttribute("x1", x1);
+  node.setAttribute("y1", y1);
+  node.setAttribute("x2", x2);
+  node.setAttribute("y2", y2);
+  return node;
+}
+
+function text(x, y, value) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  node.setAttribute("x", x);
+  node.setAttribute("y", y);
+  node.textContent = value;
+  return node;
+}
+
+function table(headers, rows) {
+  return `
+    <table>
+      <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+      <tbody>
+        ${rows
+          .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function toneText(value, content) {
+  const className = value >= 0 ? "positive" : "negative";
+  return `<span class="${className}">${escapeHtml(content)}</span>`;
+}
+
+function money(value) {
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function compactNumber(value) {
+  return new Intl.NumberFormat("zh-CN", {
+    notation: "compact",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function timeLabel(value) {
+  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function dateTimeLabel(value) {
+  if (!value) return "--";
+  return new Date(value).toLocaleString([], {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function setTone(element, value) {
+  element.classList.toggle("positive", value >= 0);
+  element.classList.toggle("negative", value < 0);
+}
+
+function setLoading(isLoading, silent = false) {
+  els.runButton.disabled = isLoading;
+  if (!silent) {
+    els.runButton.textContent = isLoading ? "加载中..." : runButtonLabel();
+  } else if (!isLoading) {
+    els.runButton.textContent = runButtonLabel();
+  }
+}
+
+function runButtonLabel() {
+  return state.mode === "static" ? "刷新快照" : "运行模拟";
+}
+
+function showError(message) {
+  els.errorBox.hidden = false;
+  els.errorBox.textContent = message;
+}
+
+function hideError() {
+  els.errorBox.hidden = true;
+  els.errorBox.textContent = "";
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}

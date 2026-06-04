@@ -1,0 +1,14 @@
+[project]
+name = "quant-paper-trader"
+version = "0.1.0"
+description = "A lightweight SMA crossover paper trading dashboard."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+quant-paper-trader = "quant_trader.server:main"
+quant-paper-trader-static = "quant_trader.static_site:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
