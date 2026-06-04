@@ -6,6 +6,7 @@ const state = {
 };
 
 const STATIC_DATA_URL = "data/latest.json";
+const THEME_KEY = "quant-paper-theme";
 
 const els = {
   symbolsInput: document.querySelector("#symbolsInput"),
@@ -13,6 +14,7 @@ const els = {
   fastInput: document.querySelector("#fastInput"),
   slowInput: document.querySelector("#slowInput"),
   runButton: document.querySelector("#runButton"),
+  themeToggle: document.querySelector("#themeToggle"),
   autoRefresh: document.querySelector("#autoRefresh"),
   symbolSelect: document.querySelector("#symbolSelect"),
   equityMetric: document.querySelector("#equityMetric"),
@@ -30,7 +32,10 @@ const els = {
   errorBox: document.querySelector("#errorBox"),
 };
 
+initTheme();
+
 els.runButton.addEventListener("click", () => runSimulation());
+els.themeToggle.addEventListener("click", toggleTheme);
 els.symbolSelect.addEventListener("change", () => {
   state.selectedSymbol = els.symbolSelect.value;
   render();
@@ -48,6 +53,27 @@ function scheduleRefresh() {
   if (els.autoRefresh.checked) {
     state.timer = setInterval(() => runSimulation({ silent: true }), 60_000);
   }
+}
+
+function initTheme() {
+  const savedTheme = localStorage.getItem(THEME_KEY);
+  const prefersLight = window.matchMedia?.("(prefers-color-scheme: light)").matches;
+  applyTheme(savedTheme || (prefersLight ? "light" : "dark"));
+}
+
+function toggleTheme() {
+  const current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  applyTheme(current === "light" ? "dark" : "light");
+}
+
+function applyTheme(theme) {
+  const normalized = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = normalized;
+  localStorage.setItem(THEME_KEY, normalized);
+
+  const isLight = normalized === "light";
+  els.themeToggle.textContent = isLight ? "暗色模式" : "亮色模式";
+  els.themeToggle.setAttribute("aria-label", isLight ? "切换暗色主题" : "切换亮色主题");
 }
 
 async function runSimulation(options = {}) {

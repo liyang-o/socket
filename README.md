@@ -1,6 +1,6 @@
 # Quant Paper Trader
 
-一个轻量级量化模拟交易教学项目：从公开日内行情拉取数据，运行移动均线交叉策略，使用纸面账户模拟买卖，并用网页展示当日收益、所选股票涨跌曲线、持仓和交易记录。
+一个轻量级量化模拟交易教学项目：从公开日内行情拉取数据，运行移动均线交叉策略，使用纸面账户模拟买卖，并用网页展示当日收益、所选股票涨跌曲线、持仓和交易记录。网页支持暗色/亮色主题切换。
 
 > 免责声明：本项目仅用于编程、量化入门和模拟交易教学，不构成投资建议，也不会向真实券商下单。
 
@@ -44,6 +44,8 @@ QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 ### GitHub Pages 静态快照模式
 
 本项目也支持 GitHub Actions + GitHub Pages。工作流会定时运行策略、生成最新模拟交易 JSON，并把纯静态网页发布到 GitHub Pages。
+
+仓库应只保留 `.github/workflows/pages.yml` 这一条 Pages 部署 workflow；不要再启用把整个仓库根目录发布到 Pages 的旧 workflow，否则会覆盖生成好的 `public/` 站点。
 
 1. 合并本分支后，到仓库 `Settings -> Pages`，将 Source 设置为 `GitHub Actions`。
 2. 打开 `Actions -> Publish quant dashboard`，可以手动运行，也可以等待定时任务。
