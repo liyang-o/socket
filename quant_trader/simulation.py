@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .broker import EquityPoint, PaperBroker
+from .market_calendar import market_session_info, market_time_label
 from .market_data import MarketSeries
 from .strategy import StrategyPoint, sma_crossover_signals
 
@@ -29,6 +30,8 @@ def simulate_portfolio(
     total_trades = 0
     all_positions: list[dict[str, float | str]] = []
     latest_prices: dict[str, float] = {}
+    latest_bar_times: dict[str, str] = {}
+    latest_bar_times_et: dict[str, str] = {}
     sources: dict[str, str] = {}
 
     for symbol, series in market.items():
@@ -37,6 +40,9 @@ def simulate_portfolio(
         equity_curve = _run_symbol(symbol, broker, points)
         last_price = points[-1].close if points else 0.0
         latest_prices[symbol] = last_price
+        if points:
+            latest_bar_times[symbol] = points[-1].time
+            latest_bar_times_et[symbol] = market_time_label(points[-1].time)
         sources[symbol] = series.source
 
         final_equity = broker.equity({symbol: last_price})
@@ -53,6 +59,8 @@ def simulate_portfolio(
             "pnl": round(final_equity - allocation, 2),
             "daily_return_pct": round(((final_equity / allocation) - 1) * 100, 4),
             "last_price": round(last_price, 4),
+            "latest_bar_time": points[-1].time if points else None,
+            "latest_bar_time_et": market_time_label(points[-1].time) if points else None,
             "bars": [point.to_dict() for point in points],
             "trades": [trade.to_dict() for trade in broker.trades],
             "positions": broker.open_positions({symbol: last_price}),
@@ -69,7 +77,10 @@ def simulate_portfolio(
             "total_trades": total_trades,
             "positions": all_positions,
             "latest_prices": {key: round(value, 4) for key, value in latest_prices.items()},
+            "latest_bar_times": latest_bar_times,
+            "latest_bar_times_et": latest_bar_times_et,
             "sources": sources,
+            "market_session": market_session_info().to_dict(),
         },
         "symbols": symbol_results,
         "parameters": {

@@ -21,6 +21,8 @@ const els = {
   tradesMetric: document.querySelector("#tradesMetric"),
   sourceBadge: document.querySelector("#sourceBadge"),
   updatedAt: document.querySelector("#updatedAt"),
+  marketMeta: document.querySelector("#marketMeta"),
+  latestBarMeta: document.querySelector("#latestBarMeta"),
   priceChart: document.querySelector("#priceChart"),
   equityChart: document.querySelector("#equityChart"),
   positionsTable: document.querySelector("#positionsTable"),
@@ -146,14 +148,37 @@ function render() {
     ? `GitHub Pages 快照 · ${dataSourceText}`
     : dataSourceText;
   els.sourceBadge.textContent = sourceText;
-  els.updatedAt.textContent = state.mode === "static"
-    ? `生成于 ${dateTimeLabel(state.data.metadata?.generated_at)}`
-    : new Date().toLocaleTimeString();
+  renderMarketTime(selected);
 
   renderPriceChart(selected.bars, selected.trades);
   renderEquityChart(selected.equity_curve);
   renderPositionsTable(state.data.portfolio.positions);
   renderTradesTable(selected.trades);
+}
+
+function renderMarketTime(selected) {
+  const session = state.data.portfolio.market_session || {};
+  const latestBar = selected.latest_bar_time_et || selected.bars.at(-1)?.time_et || "--";
+  const modeText = state.mode === "static" ? "快照生成" : "本地刷新";
+  const updatedAt = state.mode === "static"
+    ? state.data.metadata?.generated_at_et || dateTimeLabel(state.data.metadata?.generated_at)
+    : etDateTimeLabel(new Date());
+
+  els.updatedAt.textContent = `${modeText}: ${updatedAt}`;
+  els.marketMeta.textContent = `美股状态: ${marketStatusText(session)} · ${session.session_date || "--"}`;
+  els.latestBarMeta.textContent = `最新行情 bar: ${latestBar}`;
+}
+
+function marketStatusText(session) {
+  const statusMap = {
+    open: "常规交易中",
+    pre_market: "盘前，常规交易未开",
+    after_hours: "盘后，常规交易已收",
+    closed: "休市",
+  };
+  const status = statusMap[session.status] || "未知";
+  const close = session.close_time_et ? `，收盘 ${session.close_time_et}` : "";
+  return `${status}${close}`;
 }
 
 function renderMetrics(portfolio) {
@@ -425,17 +450,33 @@ function compactNumber(value) {
 }
 
 function timeLabel(value) {
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value)) + " ET";
 }
 
 function dateTimeLabel(value) {
   if (!value) return "--";
-  return new Date(value).toLocaleString([], {
+  return new Date(value).toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function etDateTimeLabel(value) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "America/New_York",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(value) + " ET";
 }
 
 function setTone(element, value) {

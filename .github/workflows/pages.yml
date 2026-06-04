@@ -20,7 +20,9 @@ on:
         default: "26"
         required: false
   schedule:
-    - cron: "*/30 14-21 * * 1-5"
+    # Covers the NYSE regular session across US daylight/standard time.
+    # The app itself marks pre-market, open, after-hours, weekends, and holidays.
+    - cron: "*/30 13-21 * * 1-5"
   push:
     branches:
       - main

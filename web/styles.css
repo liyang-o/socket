@@ -105,6 +105,13 @@ label {
   color: var(--text);
 }
 
+.status-card p {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .controls {
   display: grid;
   grid-template-columns: 2fr repeat(3, minmax(8rem, 0.8fr)) auto auto;
