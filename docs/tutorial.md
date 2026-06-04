@@ -72,7 +72,8 @@ slow = SMA(close, 26)
 - 网格线模拟 graphing calculator 风格。
 - Close、Fast SMA、Slow SMA 分别用不同颜色显示。
 - 买入/卖出点用圆点标记。
-- 每 60 秒自动刷新一次 `/api/simulate`。
+- 本地服务模式每 60 秒自动刷新一次 `/api/simulate`。
+- GitHub Pages 模式每 60 秒重新读取一次 `data/latest.json` 快照。
 
 核心思路是把数据点映射到画布坐标：
 
@@ -81,7 +82,40 @@ x = left + index / (count - 1) * plot_width
 y = top + (max_price - price) / (max_price - min_price) * plot_height
 ```
 
-## 6. 如何运行
+## 6. GitHub Pages 静态快照：`static_site.py` + Actions
+
+GitHub Pages 不能运行 Python 后端，所以本项目增加了静态快照模式：
+
+```text
+GitHub Actions 定时运行 Python
+  -> 拉取行情
+  -> 运行模拟交易
+  -> 生成 public/data/latest.json
+  -> 部署 public/ 到 GitHub Pages
+  -> 浏览器读取 latest.json 并绘图
+```
+
+本地生成方式：
+
+```bash
+python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA
+```
+
+生成后的 `public/` 是纯静态目录，可以被 GitHub Pages、Nginx、S3 静态网站等直接托管。
+
+`.github/workflows/pages.yml` 做了三件事：
+
+1. 定时或手动触发 workflow。
+2. 执行 `python3 -m quant_trader.static_site` 生成站点。
+3. 使用 `actions/deploy-pages` 发布到 GitHub Pages。
+
+重要限制：
+
+- Pages 展示的是最近一次 workflow 生成的快照，不是毫秒级实时流。
+- 修改股票池和参数需要重新运行 workflow，或配置仓库变量 `QUANT_SYMBOLS`、`QUANT_CASH`、`QUANT_FAST`、`QUANT_SLOW`。
+- 如果 GitHub Actions 运行时行情接口不可用，仍会使用样例行情兜底，页面会显示数据来源。
+
+## 7. 如何运行
 
 ```bash
 python3 -m quant_trader.server --host 127.0.0.1 --port 8000
@@ -105,7 +139,7 @@ QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 python3 -m unittest discover -s tests
 ```
 
-## 7. 接入真实券商前必须补齐的内容
+## 8. 接入真实券商前必须补齐的内容
 
 本项目当前只做模拟交易，不会真实下单。若要接入真实券商或 sandbox，请先补齐：
 

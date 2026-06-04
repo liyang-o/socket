@@ -1,0 +1,88 @@
+name: Publish quant dashboard
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Comma-separated symbols"
+        default: "AAPL,MSFT,NVDA"
+        required: false
+      cash:
+        description: "Initial paper cash"
+        default: "100000"
+        required: false
+      fast:
+        description: "Fast SMA window"
+        default: "12"
+        required: false
+      slow:
+        description: "Slow SMA window"
+        default: "26"
+        required: false
+  schedule:
+    - cron: "*/30 14-21 * * 1-5"
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate static dashboard
+        env:
+          INPUT_SYMBOLS: ${{ github.event.inputs.symbols }}
+          INPUT_CASH: ${{ github.event.inputs.cash }}
+          INPUT_FAST: ${{ github.event.inputs.fast }}
+          INPUT_SLOW: ${{ github.event.inputs.slow }}
+          VAR_SYMBOLS: ${{ vars.QUANT_SYMBOLS }}
+          VAR_CASH: ${{ vars.QUANT_CASH }}
+          VAR_FAST: ${{ vars.QUANT_FAST }}
+          VAR_SLOW: ${{ vars.QUANT_SLOW }}
+        run: |
+          SYMBOLS="${INPUT_SYMBOLS:-${VAR_SYMBOLS:-AAPL,MSFT,NVDA}}"
+          CASH="${INPUT_CASH:-${VAR_CASH:-100000}}"
+          FAST="${INPUT_FAST:-${VAR_FAST:-12}}"
+          SLOW="${INPUT_SLOW:-${VAR_SLOW:-26}}"
+          python3 -m quant_trader.static_site \
+            --output public \
+            --symbols "$SYMBOLS" \
+            --cash "$CASH" \
+            --fast "$FAST" \
+            --slow "$SLOW"
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

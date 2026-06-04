@@ -1,8 +1,11 @@
 const state = {
   data: null,
+  mode: null,
   selectedSymbol: null,
   timer: null,
 };
+
+const STATIC_DATA_URL = "data/latest.json";
 
 const els = {
   symbolsInput: document.querySelector("#symbolsInput"),
@@ -57,13 +60,10 @@ async function runSimulation(options = {}) {
   });
 
   try {
-    const response = await fetch(`/api/simulate?${params.toString()}`);
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || "请求失败");
-    }
-
+    const { payload, mode } = await loadSimulation(params);
     state.data = payload;
+    state.mode = mode;
+    syncControlsFromPayload(payload, mode);
     const symbols = Object.keys(payload.symbols);
     if (!symbols.includes(state.selectedSymbol)) {
       state.selectedSymbol = symbols[0];
@@ -76,6 +76,61 @@ async function runSimulation(options = {}) {
   }
 }
 
+async function loadSimulation(params) {
+  if (isGitHubPages()) {
+    return { payload: await fetchStaticSnapshot(), mode: "static" };
+  }
+
+  try {
+    return { payload: await fetchApiSimulation(params), mode: "api" };
+  } catch (apiError) {
+    const payload = await fetchStaticSnapshot();
+    payload.metadata = {
+      ...(payload.metadata || {}),
+      api_error: apiError.message,
+    };
+    return { payload, mode: "static" };
+  }
+}
+
+async function fetchApiSimulation(params) {
+  const response = await fetch(`/api/simulate?${params.toString()}`);
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "请求失败");
+  }
+  return payload;
+}
+
+async function fetchStaticSnapshot() {
+  const response = await fetch(`${STATIC_DATA_URL}?t=${Date.now()}`);
+  if (!response.ok) {
+    throw new Error("无法加载静态快照 data/latest.json");
+  }
+  return response.json();
+}
+
+function isGitHubPages() {
+  return window.location.hostname.endsWith("github.io");
+}
+
+function syncControlsFromPayload(payload, mode) {
+  const symbols = Object.keys(payload.symbols);
+  const parameters = payload.parameters || {};
+  if (mode === "static") {
+    els.symbolsInput.value = symbols.join(",");
+    els.cashInput.value = payload.portfolio.initial_cash;
+    els.fastInput.value = parameters.fast_window || els.fastInput.value;
+    els.slowInput.value = parameters.slow_window || els.slowInput.value;
+  }
+
+  const isStatic = mode === "static";
+  for (const input of [els.symbolsInput, els.cashInput, els.fastInput, els.slowInput]) {
+    input.disabled = isStatic;
+    input.title = isStatic ? "GitHub Pages 静态模式下参数由 Actions 工作流生成" : "";
+  }
+}
+
 function render() {
   if (!state.data) return;
 
@@ -84,11 +139,16 @@ function render() {
 
   const selected = state.data.symbols[state.selectedSymbol];
   const sources = Object.values(state.data.portfolio.sources);
-  const sourceText = sources.every((source) => source === "yahoo")
+  const dataSourceText = sources.every((source) => source === "yahoo")
     ? "Yahoo Finance"
     : "样例行情兜底";
+  const sourceText = state.mode === "static"
+    ? `GitHub Pages 快照 · ${dataSourceText}`
+    : dataSourceText;
   els.sourceBadge.textContent = sourceText;
-  els.updatedAt.textContent = new Date().toLocaleTimeString();
+  els.updatedAt.textContent = state.mode === "static"
+    ? `生成于 ${dateTimeLabel(state.data.metadata?.generated_at)}`
+    : new Date().toLocaleTimeString();
 
   renderPriceChart(selected.bars, selected.trades);
   renderEquityChart(selected.equity_curve);
@@ -368,6 +428,16 @@ function timeLabel(value) {
   return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function dateTimeLabel(value) {
+  if (!value) return "--";
+  return new Date(value).toLocaleString([], {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function setTone(element, value) {
   element.classList.toggle("positive", value >= 0);
   element.classList.toggle("negative", value < 0);
@@ -376,10 +446,14 @@ function setTone(element, value) {
 function setLoading(isLoading, silent = false) {
   els.runButton.disabled = isLoading;
   if (!silent) {
-    els.runButton.textContent = isLoading ? "运行中..." : "运行模拟";
+    els.runButton.textContent = isLoading ? "加载中..." : runButtonLabel();
   } else if (!isLoading) {
-    els.runButton.textContent = "运行模拟";
+    els.runButton.textContent = runButtonLabel();
   }
+}
+
+function runButtonLabel() {
+  return state.mode === "static" ? "刷新快照" : "运行模拟";
 }
 
 function showError(message) {
