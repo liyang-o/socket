@@ -163,7 +163,7 @@ def _fetch_yahoo_chart(symbol: str, data_range: str, interval: str) -> list[Bar]
     return bars
 
 
-def sample_intraday(symbol: str, points: int = 390, now: datetime | None = None) -> list[Bar]:
+def sample_intraday(symbol: str, points: int = 391, now: datetime | None = None) -> list[Bar]:
     """Generate realistic-looking intraday data when live data is unavailable."""
 
     seed = sum(ord(ch) for ch in symbol)
