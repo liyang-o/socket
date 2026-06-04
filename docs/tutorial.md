@@ -16,7 +16,20 @@ https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=1d&interval=1m
 Bar(time, open, high, low, close, volume)
 ```
 
-如果网络不可用、接口限流或返回数据太少，系统会自动调用 `sample_intraday()` 生成样例数据。这保证课堂演示、CI 测试和离线环境都能正常启动。
+行情层还会把数据限制在美股常规交易时段：
+
+```text
+America/New_York 09:30-16:00
+```
+
+`market_calendar.py` 负责：
+
+- UTC 和美东时间转换。
+- 识别工作日、周末和主要美股假日。
+- 识别常见 13:00 ET 半日收盘。
+- 为页面提供盘前、交易中、盘后、休市状态。
+
+如果网络不可用、接口限流或返回数据太少，系统会自动调用 `sample_intraday()` 生成样例数据。样例数据也按最近一个美股交易 session 生成，而不是简单按当前 UTC 时间倒推。这保证课堂演示、CI 测试和离线环境都能正常启动，同时避免交易时间看起来脱离真实市场。
 
 ## 2. 策略层：`strategy.py`
 
@@ -74,6 +87,7 @@ slow = SMA(close, 26)
 - 买入/卖出点用圆点标记。
 - 本地服务模式每 60 秒自动刷新一次 `/api/simulate`。
 - GitHub Pages 模式每 60 秒重新读取一次 `data/latest.json` 快照。
+- 状态卡展示快照/刷新时间、最新行情 bar 的 ET 时间和美股市场状态。
 
 核心思路是把数据点映射到画布坐标：
 
@@ -89,6 +103,7 @@ GitHub Pages 不能运行 Python 后端，所以本项目增加了静态快照�
 ```text
 GitHub Actions 定时运行 Python
   -> 拉取行情
+  -> 过滤到 09:30-16:00 ET 常规交易时段
   -> 运行模拟交易
   -> 生成 public/data/latest.json
   -> 部署 public/ 到 GitHub Pages
@@ -112,6 +127,7 @@ python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA
 重要限制：
 
 - Pages 展示的是最近一次 workflow 生成的快照，不是毫秒级实时流。
+- 交易时间更接近真实美股常规时段，但仍是“定时快照 + 纸面交易重算”，不是券商撮合回报。
 - 修改股票池和参数需要重新运行 workflow，或配置仓库变量 `QUANT_SYMBOLS`、`QUANT_CASH`、`QUANT_FAST`、`QUANT_SLOW`。
 - 如果 GitHub Actions 运行时行情接口不可用，仍会使用样例行情兜底，页面会显示数据来源。
 

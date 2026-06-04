@@ -20,7 +20,9 @@ on:
         default: "26"
         required: false
   schedule:
-    - cron: "*/30 14-21 * * 1-5"
+    # Covers the NYSE regular session across US daylight/standard time.
+    # The app itself marks pre-market, open, after-hours, weekends, and holidays.
+    - cron: "*/30 13-21 * * 1-5"
   push:
     branches:
       - main
@@ -29,6 +31,9 @@ permissions:
   contents: read
   pages: write
   id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 concurrency:
   group: pages
@@ -85,4 +90,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

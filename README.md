@@ -1,6 +1,6 @@
 # Quant Paper Trader
 
-一个轻量级量化模拟交易教学项目：从公开日内行情拉取数据，运行移动均线交叉策略，使用纸面账户模拟买卖，并用网页展示当日收益、所选股票涨跌曲线、持仓和交易记录。
+一个轻量级量化模拟交易教学项目：从公开日内行情拉取数据，运行移动均线交叉策略，使用纸面账户模拟买卖，并用网页展示当日收益、所选股票涨跌曲线、持仓和交易记录。网页支持暗色/亮色主题切换。
 
 > 免责声明：本项目仅用于编程、量化入门和模拟交易教学，不构成投资建议，也不会向真实券商下单。
 
@@ -13,7 +13,7 @@
 
 本仓库没有直接复制这些项目的代码，而是把核心思想重构为更小、更易读的教学实现：
 
-1. `market_data` 拉取 Yahoo Finance 日内 chart 数据，网络不可用时用样例行情兜底。
+1. `market_data` 拉取 Yahoo Finance 日内 chart 数据，并过滤到美股常规交易时段 09:30-16:00 ET；网络不可用时用按美股交易日生成的样例行情兜底。
 2. `strategy` 计算 fast/slow SMA，并在交叉时生成 `buy` / `sell` 信号。
 3. `broker` 使用纸面账户模拟手续费、现金、持仓和交易记录。
 4. `simulation` 聚合多只股票的当日收益。
@@ -45,14 +45,16 @@ QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 
 本项目也支持 GitHub Actions + GitHub Pages。工作流会定时运行策略、生成最新模拟交易 JSON，并把纯静态网页发布到 GitHub Pages。
 
+仓库应只保留 `.github/workflows/pages.yml` 这一条 Pages 部署 workflow；不要再启用把整个仓库根目录发布到 Pages 的旧 workflow，否则会覆盖生成好的 `public/` 站点。
+
 1. 合并本分支后，到仓库 `Settings -> Pages`，将 Source 设置为 `GitHub Actions`。
 2. 打开 `Actions -> Publish quant dashboard`，可以手动运行，也可以等待定时任务。
 3. 部署完成后访问 GitHub Pages URL。
 
-默认 workflow 每 30 分钟在美股常规交易时段附近运行一次：
+默认 workflow 每 30 分钟在美股常规交易时段附近运行一次。GitHub cron 使用 UTC，因此这里覆盖美股夏令时和冬令时的常规交易窗口；应用会在结果里标记盘前、交易中、盘后、周末和主要美股假日：
 
 ```yaml
-*/30 14-21 * * 1-5
+*/30 13-21 * * 1-5
 ```
 
 可通过仓库变量覆盖默认参数：
@@ -80,7 +82,7 @@ public/
   data/latest.json
 ```
 
-> 注意：GitHub Pages 模式展示的是 Actions 最近一次生成的快照，不是浏览器关闭后仍持续运行的实时交易进程。若需要更接近实时的交易循环，需要部署长期运行的后端服务。
+> 注意：GitHub Pages 模式展示的是 Actions 最近一次生成的快照，不是浏览器关闭后仍持续运行的实时交易进程。页面会显示快照生成时间、最新行情 bar 的美东时间和美股市场状态；若需要真正持续处理新增 bar，需要部署长期运行的后端服务并持久化纸面账户状态。
 
 ## API
 
@@ -113,6 +115,7 @@ curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&fast
 ```text
 quant_trader/
   market_data.py   # 行情拉取与样例行情
+  market_calendar.py # 美股交易日历、时区和常规时段
   strategy.py      # SMA 交叉信号
   broker.py        # 纸面经纪账户
   simulation.py    # 多股票组合模拟

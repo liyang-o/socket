@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 from typing import Any
 
+from .market_calendar import market_session_info
 from .market_data import fetch_intraday, parse_symbols
 from .simulation import simulate_portfolio
 
@@ -42,9 +43,12 @@ def build_static_payload(
         slow_window=slow_window,
         commission_rate=commission_rate,
     )
+    session = market_session_info()
     payload["metadata"] = {
         "mode": "github_pages_snapshot",
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at_et": session.generated_at_et,
+        "market_timezone": session.timezone,
         "symbols": parsed_symbols,
         "data_range": data_range,
         "interval": interval,

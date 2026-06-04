@@ -1,16 +1,53 @@
 :root {
   color-scheme: dark;
   --bg: #0a1020;
+  --body-bg:
+    radial-gradient(circle at top left, rgba(111, 182, 255, 0.2), transparent 28rem),
+    linear-gradient(135deg, #08101f 0%, var(--bg) 55%, #050914 100%);
   --panel: #111a2f;
   --panel-2: #15213d;
+  --panel-bg: rgba(17, 26, 47, 0.84);
+  --border: rgba(147, 164, 196, 0.16);
   --text: #edf4ff;
   --muted: #93a4c4;
+  --input-bg: #0c1427;
+  --button-text: #06101f;
+  --shadow: 0 20px 70px rgba(0, 0, 0, 0.26);
+  --error-bg: rgba(255, 107, 122, 0.11);
+  --error-border: rgba(255, 107, 122, 0.45);
+  --error-text: #ffd4d9;
   --grid: rgba(147, 164, 196, 0.18);
   --green: #2ee59d;
   --red: #ff6b7a;
   --blue: #6fb6ff;
   --yellow: #ffd166;
   --line: #9be7ff;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #eef5ff;
+  --body-bg:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.16), transparent 30rem),
+    linear-gradient(135deg, #f8fbff 0%, #eef5ff 55%, #eaf0fb 100%);
+  --panel: #ffffff;
+  --panel-2: #f2f6ff;
+  --panel-bg: rgba(255, 255, 255, 0.86);
+  --border: rgba(41, 56, 85, 0.14);
+  --text: #101828;
+  --muted: #5b6780;
+  --input-bg: #ffffff;
+  --button-text: #ffffff;
+  --shadow: 0 20px 70px rgba(41, 56, 85, 0.13);
+  --error-bg: rgba(220, 38, 38, 0.08);
+  --error-border: rgba(220, 38, 38, 0.3);
+  --error-text: #991b1b;
+  --grid: rgba(91, 103, 128, 0.18);
+  --green: #047857;
+  --red: #dc2626;
+  --blue: #2563eb;
+  --yellow: #b7791f;
+  --line: #0369a1;
 }
 
 * {
@@ -20,12 +57,11 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(111, 182, 255, 0.2), transparent 28rem),
-    linear-gradient(135deg, #08101f 0%, var(--bg) 55%, #050914 100%);
+  background: var(--body-bg);
   color: var(--text);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  transition: background 180ms ease, color 180ms ease;
 }
 
 button,
@@ -39,6 +75,13 @@ select {
   justify-content: space-between;
   gap: 2rem;
   padding: 3rem min(5vw, 4rem) 1.5rem;
+}
+
+.hero-side {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  min-width: 15rem;
 }
 
 .eyebrow {
@@ -78,16 +121,15 @@ main {
 .panel,
 .metric,
 .status-card {
-  border: 1px solid rgba(147, 164, 196, 0.16);
+  border: 1px solid var(--border);
   border-radius: 24px;
-  background: rgba(17, 26, 47, 0.84);
-  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.26);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow);
   backdrop-filter: blur(16px);
 }
 
 .status-card {
   align-self: flex-start;
-  min-width: 12rem;
   padding: 1rem;
 }
 
@@ -103,6 +145,13 @@ label {
   display: block;
   margin-top: 0.45rem;
   color: var(--text);
+}
+
+.status-card p {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .controls {
@@ -122,9 +171,9 @@ label {
 input,
 select {
   width: 100%;
-  border: 1px solid rgba(147, 164, 196, 0.26);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  background: #0c1427;
+  background: var(--input-bg);
   color: var(--text);
   padding: 0.78rem 0.9rem;
   outline: none;
@@ -139,10 +188,18 @@ button {
   border: 0;
   border-radius: 14px;
   background: linear-gradient(135deg, var(--blue), #8a7dff);
-  color: #06101f;
+  color: var(--button-text);
   cursor: pointer;
   font-weight: 800;
   padding: 0.86rem 1.1rem;
+}
+
+.theme-toggle {
+  justify-self: end;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
 }
 
 button:disabled {
@@ -238,7 +295,7 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid rgba(147, 164, 196, 0.14);
+  border-bottom: 1px solid var(--border);
   padding: 0.75rem 0.45rem;
   text-align: left;
   white-space: nowrap;
@@ -255,10 +312,10 @@ th {
 }
 
 .error {
-  border: 1px solid rgba(255, 107, 122, 0.45);
+  border: 1px solid var(--error-border);
   border-radius: 16px;
-  background: rgba(255, 107, 122, 0.11);
-  color: #ffd4d9;
+  background: var(--error-bg);
+  color: var(--error-text);
   padding: 1rem;
 }
 
@@ -270,6 +327,11 @@ th {
 
   .hero {
     display: grid;
+  }
+
+  .hero-side,
+  .theme-toggle {
+    justify-self: start;
   }
 
   .controls,
