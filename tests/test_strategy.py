@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 from quant_trader.market_data import Bar, MarketSeries, parse_symbols, sample_intraday
 from quant_trader.simulation import simulate_portfolio
-from quant_trader.strategy import simple_moving_average, sma_crossover_signals
+from quant_trader.indicators import bollinger_bands, relative_strength_index, simple_moving_average
+from quant_trader.strategy import available_strategies, generate_signals, sma_crossover_signals
 
 
 class StrategyTests(unittest.TestCase):
@@ -24,6 +25,36 @@ class StrategyTests(unittest.TestCase):
 
         self.assertIn("buy", signals)
         self.assertIn("sell", signals)
+
+    def test_available_strategies_include_new_signal_families(self) -> None:
+        keys = {strategy["key"] for strategy in available_strategies()}
+
+        self.assertIn("rsi_reversion", keys)
+        self.assertIn("bollinger_reversion", keys)
+        self.assertIn("hybrid_reversion", keys)
+        self.assertIn("momentum_rotation", keys)
+
+    def test_rsi_and_bollinger_indicators_emit_values(self) -> None:
+        closes = [10, 9, 8, 9, 10, 11, 12, 11, 10, 9, 8, 9, 10, 11, 12, 13]
+
+        rsi = relative_strength_index(closes, 5)
+        lower, middle, upper = bollinger_bands(closes, 5, 2)
+
+        self.assertIsNotNone(rsi[-1])
+        self.assertIsNotNone(lower[-1])
+        self.assertLess(lower[-1], middle[-1])
+        self.assertLess(middle[-1], upper[-1])
+
+    def test_generate_signals_adds_strategy_specific_fields(self) -> None:
+        bars = _bars_from_closes(
+            [10, 9, 8, 9, 10, 11, 12, 11, 10, 9, 8, 9, 10, 11, 12, 13] * 2
+        )
+
+        rsi_points = generate_signals(bars, "rsi_reversion")
+        bollinger_points = generate_signals(bars, "bollinger_reversion")
+
+        self.assertTrue(any(point.rsi is not None for point in rsi_points))
+        self.assertTrue(any(point.bb_lower is not None for point in bollinger_points))
 
     def test_parse_symbols_normalizes_and_deduplicates(self) -> None:
         self.assertEqual(parse_symbols(" aapl,MSFT,aapl "), ["AAPL", "MSFT"])
@@ -45,6 +76,23 @@ class SimulationTests(unittest.TestCase):
         self.assertIn("AAPL", result["symbols"])
         self.assertGreater(result["portfolio"]["equity"], 0)
         self.assertEqual(result["parameters"]["fast_window"], 4)
+
+    def test_simulate_portfolio_supports_momentum_rotation(self) -> None:
+        market = {
+            "AAPL": MarketSeries("AAPL", "sample", sample_intraday("AAPL", points=120)),
+            "MSFT": MarketSeries("MSFT", "sample", sample_intraday("MSFT", points=120)),
+        }
+
+        result = simulate_portfolio(
+            market,
+            initial_cash=10_000,
+            strategy_name="momentum_rotation",
+            momentum_window=20,
+        )
+
+        self.assertEqual(result["parameters"]["strategy"]["key"], "momentum_rotation")
+        self.assertIn("available_strategies", result["parameters"])
+        self.assertGreater(result["portfolio"]["equity"], 0)
 
 
 def _bars_from_closes(closes: list[float]) -> list[Bar]:

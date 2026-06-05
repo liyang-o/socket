@@ -35,6 +35,16 @@
           <input id="symbolsInput" value="AAPL,MSFT,NVDA" autocomplete="off" />
         </label>
         <label>
+          策略
+          <select id="strategyInput">
+            <option value="sma_cross">SMA 双均线趋势</option>
+            <option value="rsi_reversion">RSI 均值回归</option>
+            <option value="bollinger_reversion">布林带均值回归</option>
+            <option value="hybrid_reversion">RSI + 布林带混合</option>
+            <option value="momentum_rotation">多资产动量轮动</option>
+          </select>
+        </label>
+        <label>
           初始资金
           <input id="cashInput" type="number" min="1000" step="1000" value="100000" />
         </label>

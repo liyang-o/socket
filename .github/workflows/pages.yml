@@ -19,6 +19,10 @@ on:
         description: "Slow SMA window"
         default: "26"
         required: false
+      strategy:
+        description: "Strategy key: sma_cross, rsi_reversion, bollinger_reversion, hybrid_reversion, momentum_rotation"
+        default: "sma_cross"
+        required: false
   schedule:
     # Covers the NYSE regular session across US daylight/standard time.
     # The app itself marks pre-market, open, after-hours, weekends, and holidays.
@@ -57,21 +61,25 @@ jobs:
           INPUT_CASH: ${{ github.event.inputs.cash }}
           INPUT_FAST: ${{ github.event.inputs.fast }}
           INPUT_SLOW: ${{ github.event.inputs.slow }}
+          INPUT_STRATEGY: ${{ github.event.inputs.strategy }}
           VAR_SYMBOLS: ${{ vars.QUANT_SYMBOLS }}
           VAR_CASH: ${{ vars.QUANT_CASH }}
           VAR_FAST: ${{ vars.QUANT_FAST }}
           VAR_SLOW: ${{ vars.QUANT_SLOW }}
+          VAR_STRATEGY: ${{ vars.QUANT_STRATEGY }}
         run: |
           SYMBOLS="${INPUT_SYMBOLS:-${VAR_SYMBOLS:-AAPL,MSFT,NVDA}}"
           CASH="${INPUT_CASH:-${VAR_CASH:-100000}}"
           FAST="${INPUT_FAST:-${VAR_FAST:-12}}"
           SLOW="${INPUT_SLOW:-${VAR_SLOW:-26}}"
+          STRATEGY="${INPUT_STRATEGY:-${VAR_STRATEGY:-sma_cross}}"
           python3 -m quant_trader.static_site \
             --output public \
             --symbols "$SYMBOLS" \
             --cash "$CASH" \
             --fast "$FAST" \
-            --slow "$SLOW"
+            --slow "$SLOW" \
+            --strategy "$STRATEGY"
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

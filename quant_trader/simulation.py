@@ -5,7 +5,14 @@ from __future__ import annotations
 from .broker import EquityPoint, PaperBroker
 from .market_calendar import market_session_info, market_time_label
 from .market_data import MarketSeries
-from .strategy import StrategyPoint, sma_crossover_signals
+from .strategy import (
+    DEFAULT_STRATEGY,
+    StrategyConfig,
+    StrategyPoint,
+    available_strategies,
+    generate_signals,
+    strategy_spec,
+)
 
 
 def simulate_portfolio(
@@ -14,6 +21,14 @@ def simulate_portfolio(
     initial_cash: float = 100_000,
     fast_window: int = 12,
     slow_window: int = 26,
+    strategy_name: str = DEFAULT_STRATEGY,
+    rsi_window: int = 14,
+    rsi_oversold: float = 30,
+    rsi_overbought: float = 70,
+    bollinger_window: int = 20,
+    bollinger_stddev: float = 2.0,
+    momentum_window: int = 60,
+    top_n: int = 1,
     commission_rate: float = 0.001,
 ) -> dict[str, object]:
     """Simulate each selected symbol, then aggregate the resulting account."""
@@ -22,6 +37,26 @@ def simulate_portfolio(
         raise ValueError("initial_cash must be greater than zero")
     if not market:
         raise ValueError("market data cannot be empty")
+
+    config = StrategyConfig(
+        fast_window=fast_window,
+        slow_window=slow_window,
+        rsi_window=rsi_window,
+        rsi_oversold=rsi_oversold,
+        rsi_overbought=rsi_overbought,
+        bollinger_window=bollinger_window,
+        bollinger_stddev=bollinger_stddev,
+        momentum_window=momentum_window,
+        top_n=top_n,
+    )
+    spec = strategy_spec(strategy_name)
+    if spec.portfolio_level:
+        return _simulate_momentum_rotation(
+            market,
+            initial_cash=initial_cash,
+            commission_rate=commission_rate,
+            config=config,
+        )
 
     allocation = initial_cash / len(market)
     symbol_results: dict[str, dict[str, object]] = {}
@@ -36,7 +71,7 @@ def simulate_portfolio(
 
     for symbol, series in market.items():
         broker = PaperBroker(cash=allocation, commission_rate=commission_rate)
-        points = sma_crossover_signals(series.bars, fast_window, slow_window)
+        points = generate_signals(series.bars, spec.key, config)
         equity_curve = _run_symbol(symbol, broker, points)
         last_price = points[-1].close if points else 0.0
         latest_prices[symbol] = last_price
@@ -83,11 +118,7 @@ def simulate_portfolio(
             "market_session": market_session_info().to_dict(),
         },
         "symbols": symbol_results,
-        "parameters": {
-            "fast_window": fast_window,
-            "slow_window": slow_window,
-            "commission_rate": commission_rate,
-        },
+        "parameters": _parameters_payload(spec.key, config, commission_rate),
     }
 
 
@@ -105,3 +136,160 @@ def _run_symbol(
 
         equity_curve.append(EquityPoint(point.time, round(broker.equity({symbol: point.close}), 2)))
     return equity_curve
+
+
+def _simulate_momentum_rotation(
+    market: dict[str, MarketSeries],
+    *,
+    initial_cash: float,
+    commission_rate: float,
+    config: StrategyConfig,
+) -> dict[str, object]:
+    spec = strategy_spec("momentum_rotation")
+    broker = PaperBroker(cash=initial_cash, commission_rate=commission_rate)
+    points_by_symbol = {
+        symbol: generate_signals(series.bars, spec.key, config)
+        for symbol, series in market.items()
+    }
+    max_points = min((len(points) for points in points_by_symbol.values()), default=0)
+    symbol_results: dict[str, dict[str, object]] = {}
+    equity_curve: list[EquityPoint] = []
+    current_symbol: str | None = None
+
+    for index in range(max_points):
+        prices = {
+            symbol: points[index].close
+            for symbol, points in points_by_symbol.items()
+        }
+        scores = {
+            symbol: points[index].momentum
+            for symbol, points in points_by_symbol.items()
+            if points[index].momentum is not None
+        }
+        target_symbol = _top_positive_momentum(scores)
+
+        if target_symbol != current_symbol:
+            if current_symbol is not None:
+                sell_point = points_by_symbol[current_symbol][index]
+                broker.sell_all(current_symbol, sell_point.close, sell_point.time)
+                points_by_symbol[current_symbol][index] = _replace_signal(sell_point, "sell")
+                current_symbol = None
+
+            if target_symbol is not None:
+                buy_point = points_by_symbol[target_symbol][index]
+                broker.buy(target_symbol, buy_point.close, buy_point.time)
+                points_by_symbol[target_symbol][index] = _replace_signal(buy_point, "buy")
+                current_symbol = target_symbol
+
+        timestamp = next(iter(points_by_symbol.values()))[index].time
+        equity_curve.append(EquityPoint(timestamp, round(broker.equity(prices), 2)))
+
+    latest_prices = {
+        symbol: points[-1].close
+        for symbol, points in points_by_symbol.items()
+        if points
+    }
+    latest_bar_times = {
+        symbol: points[-1].time
+        for symbol, points in points_by_symbol.items()
+        if points
+    }
+    latest_bar_times_et = {
+        symbol: market_time_label(points[-1].time)
+        for symbol, points in points_by_symbol.items()
+        if points
+    }
+    final_equity = broker.equity(latest_prices)
+    all_positions = broker.open_positions(latest_prices)
+
+    for symbol, series in market.items():
+        points = points_by_symbol[symbol]
+        last_price = points[-1].close if points else 0.0
+        symbol_trades = [trade for trade in broker.trades if trade.symbol == symbol]
+        symbol_results[symbol] = {
+            "source": series.source,
+            "initial_cash": round(initial_cash, 2),
+            "cash": round(broker.cash, 2),
+            "equity": round(final_equity, 2),
+            "pnl": round(final_equity - initial_cash, 2),
+            "daily_return_pct": round(((final_equity / initial_cash) - 1) * 100, 4),
+            "last_price": round(last_price, 4),
+            "latest_bar_time": points[-1].time if points else None,
+            "latest_bar_time_et": market_time_label(points[-1].time) if points else None,
+            "bars": [point.to_dict() for point in points],
+            "trades": [trade.to_dict() for trade in symbol_trades],
+            "positions": [position for position in all_positions if position["symbol"] == symbol],
+            "equity_curve": [point.to_dict() for point in equity_curve],
+        }
+
+    return {
+        "portfolio": {
+            "initial_cash": round(initial_cash, 2),
+            "cash": round(broker.cash, 2),
+            "equity": round(final_equity, 2),
+            "pnl": round(final_equity - initial_cash, 2),
+            "daily_return_pct": round(((final_equity / initial_cash) - 1) * 100, 4),
+            "total_trades": len(broker.trades),
+            "positions": all_positions,
+            "latest_prices": {key: round(value, 4) for key, value in latest_prices.items()},
+            "latest_bar_times": latest_bar_times,
+            "latest_bar_times_et": latest_bar_times_et,
+            "sources": {symbol: series.source for symbol, series in market.items()},
+            "market_session": market_session_info().to_dict(),
+        },
+        "symbols": symbol_results,
+        "parameters": _parameters_payload(spec.key, config, commission_rate),
+    }
+
+
+def _parameters_payload(
+    strategy_name: str,
+    config: StrategyConfig,
+    commission_rate: float,
+) -> dict[str, object]:
+    spec = strategy_spec(strategy_name)
+    return {
+        "strategy": spec.to_dict(),
+        "available_strategies": available_strategies(),
+        "fast_window": config.fast_window,
+        "slow_window": config.slow_window,
+        "rsi_window": config.rsi_window,
+        "rsi_oversold": config.rsi_oversold,
+        "rsi_overbought": config.rsi_overbought,
+        "bollinger_window": config.bollinger_window,
+        "bollinger_stddev": config.bollinger_stddev,
+        "momentum_window": config.momentum_window,
+        "top_n": config.top_n,
+        "commission_rate": commission_rate,
+    }
+
+
+def _top_positive_momentum(scores: dict[str, float | None]) -> str | None:
+    positive_scores = {
+        symbol: score
+        for symbol, score in scores.items()
+        if score is not None and score > 0
+    }
+    if not positive_scores:
+        return None
+    return max(positive_scores, key=positive_scores.get)
+
+
+def _replace_signal(point: StrategyPoint, signal: str) -> StrategyPoint:
+    return StrategyPoint(
+        time=point.time,
+        time_et=point.time_et,
+        open=point.open,
+        high=point.high,
+        low=point.low,
+        close=point.close,
+        volume=point.volume,
+        fast_sma=point.fast_sma,
+        slow_sma=point.slow_sma,
+        signal=signal,
+        rsi=point.rsi,
+        bb_lower=point.bb_lower,
+        bb_middle=point.bb_middle,
+        bb_upper=point.bb_upper,
+        momentum=point.momentum,
+    )

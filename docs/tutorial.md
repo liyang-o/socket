@@ -31,22 +31,35 @@ America/New_York 09:30-16:00
 
 如果网络不可用、接口限流或返回数据太少，系统会自动调用 `sample_intraday()` 生成样例数据。样例数据也按最近一个美股交易 session 生成，而不是简单按当前 UTC 时间倒推。这保证课堂演示、CI 测试和离线环境都能正常启动，同时避免交易时间看起来脱离真实市场。
 
-## 2. 策略层：`strategy.py`
+## 2. 指标与策略层：`indicators.py` + `strategy.py`
 
-策略只做一件事：把价格序列转换成交易信号。
+指标层只负责计算可复用时间序列，策略层只负责把指标转换成交易信号。
 
 ```python
 fast = SMA(close, 12)
 slow = SMA(close, 26)
+rsi = RSI(close, 14)
+lower, middle, upper = Bollinger(close, 20, 2)
 ```
 
-信号规则：
+当前注册的策略：
 
-- fast 从下方上穿 slow：`buy`
-- fast 从上方下穿 slow：`sell`
-- 其他情况：`hold`
+| key | 逻辑 | 类型 |
+| --- | --- | --- |
+| `sma_cross` | fast SMA 上穿 slow SMA 买入，下穿卖出 | 趋势跟随 |
+| `rsi_reversion` | RSI 超卖修复买入，超买退出 | 均值回归 |
+| `bollinger_reversion` | 价格跌破布林下轨后，回归中轨附近退出 | 均值回归 |
+| `hybrid_reversion` | RSI 超卖 + 布林下轨过滤，减少单指标噪音 | 混合 |
+| `momentum_rotation` | 多资产按 lookback 动量排序，只持有正动量最强标的 | 组合级 |
 
-这类策略的优点是简单、可解释，适合作为量化系统入门范例。缺点也很明显：震荡行情容易频繁交易，真实使用前必须做更严格的回测、风控和成本建模。
+策略注册表在 `STRATEGY_SPECS` 中维护。新增策略时，一般只需要：
+
+1. 在 `indicators.py` 添加可复用指标，或复用已有指标。
+2. 在 `strategy.py` 添加 signal generator。
+3. 在 `STRATEGY_SPECS` 注册 key、名称、类型和说明。
+4. 如果是组合级策略，在 `simulation.py` 增加组合模拟函数。
+
+这些策略的优点是简单、可解释，适合作为量化系统入门范例。缺点也很明显：静态参数容易过拟合，真实使用前必须做更严格的回测、风控和成本建模。
 
 ## 3. 纸面经纪账户：`broker.py`
 
@@ -67,7 +80,7 @@ slow = SMA(close, 26)
 
 ## 4. 组合模拟：`simulation.py`
 
-`simulate_portfolio()` 会把初始资金平均分配给所选股票，每只股票独立运行同一策略，最后聚合：
+`simulate_portfolio()` 对普通单标的策略会把初始资金平均分配给所选股票，每只股票独立运行同一策略，最后聚合：
 
 - 组合权益
 - 现金余额
@@ -76,7 +89,7 @@ slow = SMA(close, 26)
 - 当前持仓
 - 每只股票的价格曲线、交易记录和权益曲线
 
-这种拆法使策略和交易账户彼此独立。后续要新增 RSI 策略时，不需要改行情层和网页层。
+对 `momentum_rotation` 这类组合级策略，模拟器使用一个组合账户，在多个股票之间轮动。普通策略和组合级策略共用同一个指标层、行情层和网页层。
 
 ## 5. 网页可视化：`web/app.js`
 
@@ -85,6 +98,7 @@ slow = SMA(close, 26)
 - 网格线模拟 graphing calculator 风格。
 - Close、Fast SMA、Slow SMA 分别用不同颜色显示。
 - 买入/卖出点用圆点标记。
+- 策略下拉框可切换 SMA、RSI、布林带、混合均值回归和动量轮动。
 - 本地服务模式每 60 秒自动刷新一次 `/api/simulate`。
 - GitHub Pages 模式每 60 秒重新读取一次 `data/latest.json` 快照。
 - 状态卡展示快照/刷新时间、最新行情 bar 的 ET 时间和美股市场状态。
@@ -128,7 +142,7 @@ python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA
 
 - Pages 展示的是最近一次 workflow 生成的快照，不是毫秒级实时流。
 - 交易时间更接近真实美股常规时段，但仍是“定时快照 + 纸面交易重算”，不是券商撮合回报。
-- 修改股票池和参数需要重新运行 workflow，或配置仓库变量 `QUANT_SYMBOLS`、`QUANT_CASH`、`QUANT_FAST`、`QUANT_SLOW`。
+- 修改股票池和参数需要重新运行 workflow，或配置仓库变量 `QUANT_SYMBOLS`、`QUANT_CASH`、`QUANT_FAST`、`QUANT_SLOW`、`QUANT_STRATEGY`。
 - 如果 GitHub Actions 运行时行情接口不可用，仍会使用样例行情兜底，页面会显示数据来源。
 
 ## 7. 如何运行
