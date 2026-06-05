@@ -62,6 +62,13 @@ class PaperBroker:
             return None
 
         budget = self.cash * self.trade_fraction
+        return self.buy_budget(symbol, price, time, budget)
+
+    def buy_budget(self, symbol: str, price: float, time: str, budget: float) -> Trade | None:
+        if price <= 0 or self.cash <= 0 or budget <= 0:
+            return None
+
+        budget = min(budget, self.cash)
         quantity = budget / (price * (1 + self.commission_rate))
         if quantity <= 0:
             return None

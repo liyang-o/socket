@@ -41,6 +41,7 @@ class StrategyPoint:
     bb_upper: float | None = None
     momentum: float | None = None
     regime: str | None = None
+    factor_score: float | None = None
 
     def to_dict(self) -> dict[str, float | int | str | None]:
         return asdict(self)
@@ -58,7 +59,7 @@ class StrategyConfig:
     bollinger_window: int = 20
     bollinger_stddev: float = 2.0
     momentum_window: int = 60
-    top_n: int = 1
+    top_n: int = 10
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,13 @@ STRATEGY_SPECS: dict[str, StrategySpec] = {
         label="Regime 自适应",
         category="hybrid",
         description="根据动量、均线和波动状态在趋势、震荡均值回归和风险规避之间切换。",
+    ),
+    "multi_factor_top": StrategySpec(
+        key="multi_factor_top",
+        label="多因子 Top N",
+        category="portfolio",
+        description="综合动量、反转、低波、流动性和趋势因子，选择 Top N 并做波动率加权。",
+        portfolio_level=True,
     ),
 }
 
@@ -459,6 +467,7 @@ def _point(
     bb_upper: float | None = None,
     momentum: float | None = None,
     regime: str | None = None,
+    factor_score: float | None = None,
 ) -> StrategyPoint:
     return StrategyPoint(
         time=bar.time,
@@ -479,6 +488,7 @@ def _point(
         bb_upper=bb_upper,
         momentum=momentum,
         regime=regime,
+        factor_score=factor_score,
     )
 
 

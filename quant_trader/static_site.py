@@ -26,6 +26,7 @@ def build_static_payload(
     initial_cash: float,
     fast_window: int,
     slow_window: int,
+    top_n: int,
     strategy_name: str,
     universe: str,
     commission_rate: float,
@@ -45,6 +46,7 @@ def build_static_payload(
         initial_cash=initial_cash,
         fast_window=fast_window,
         slow_window=slow_window,
+        top_n=top_n,
         strategy_name=strategy_name,
         data_range=data_range,
         interval=interval,
@@ -73,6 +75,7 @@ def generate_static_site(
     initial_cash: float = 100_000,
     fast_window: int = 12,
     slow_window: int = 26,
+    top_n: int = 10,
     strategy_name: str = "sma_cross",
     universe: str = "custom",
     commission_rate: float = 0.001,
@@ -92,6 +95,7 @@ def generate_static_site(
         initial_cash=initial_cash,
         fast_window=fast_window,
         slow_window=slow_window,
+        top_n=top_n,
         strategy_name=strategy_name,
         universe=universe,
         commission_rate=commission_rate,
@@ -113,6 +117,7 @@ def main() -> None:
     parser.add_argument("--cash", default=100_000, type=float, help="Initial paper cash")
     parser.add_argument("--fast", default=12, type=int, help="Fast SMA window")
     parser.add_argument("--slow", default=26, type=int, help="Slow SMA window")
+    parser.add_argument("--top-n", default=10, type=int, help="Top N portfolio holdings")
     parser.add_argument("--strategy", default="sma_cross", help="Registered strategy key")
     parser.add_argument("--universe", default="custom", help="Universe key: custom, us_top_100, a_share_core")
     parser.add_argument("--commission", default=0.001, type=float, help="Commission rate")
@@ -126,6 +131,7 @@ def main() -> None:
         initial_cash=args.cash,
         fast_window=args.fast,
         slow_window=args.slow,
+        top_n=args.top_n,
         strategy_name=args.strategy,
         universe=args.universe,
         commission_rate=args.commission,

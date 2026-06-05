@@ -5,4 +5,7 @@ __pycache__/
 dist/
 build/
 public/
+data/
+*.sqlite
+*.sqlite3
 .DS_Store

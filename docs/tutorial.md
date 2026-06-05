@@ -69,6 +69,7 @@ lower, middle, upper = Bollinger(close, 20, 2)
 | `dual_momentum` | 先筛选正绝对动量，再选择相对动量最强标的 | 组合级 |
 | `trend_pullback` | 长期趋势向上时，只交易短期 RSI/布林带回调 | 混合 |
 | `regime_adaptive` | 依据动量、均线和波动切换趋势/震荡/风险规避 | 混合 |
+| `multi_factor_top` | 多因子横截面打分，选择 Top N 并波动率加权 | 组合级 |
 
 策略注册表在 `STRATEGY_SPECS` 中维护。新增策略时，一般只需要：
 
@@ -111,7 +112,22 @@ lower, middle, upper = Bollinger(close, 20, 2)
 
 为了让策略更可靠，默认数据周期从单日分钟线升级为 `6mo/1d` 历史日线。日内演示仍可切换到 `1d/1m`，但 RSI、布林带、动量和 regime 判断都更适合在较长历史窗口上验证。
 
-## 5. 网页可视化：`web/app.js`
+## 5. 机构化研究闭环雏形
+
+本项目现在包含几个更接近私募量化研究系统的基础模块：
+
+- `storage.py`：SQLite 行情缓存，降低对实时网络请求的依赖。
+- `factors.py`：横截面多因子打分，包括动量、反转、低波动、流动性趋势和趋势过滤。
+- `metrics.py`：回测报告指标，包括总收益、最大回撤、Sharpe、胜率和 Profit Factor。
+- `multi_factor_top`：先做因子评分，再构建 Top N 组合，并使用波动率倒数加权和现金缓冲。
+
+这条链路对应专业系统里的：
+
+```text
+历史数据 -> 因子计算 -> Alpha 打分 -> 组合构建 -> 风控约束 -> 回测报告
+```
+
+## 6. 网页可视化：`web/app.js`
 
 前端不依赖图表库，而是使用 SVG 手写绘图：
 
@@ -131,7 +147,7 @@ x = left + index / (count - 1) * plot_width
 y = top + (max_price - price) / (max_price - min_price) * plot_height
 ```
 
-## 6. GitHub Pages 静态快照：`static_site.py` + Actions
+## 7. GitHub Pages 静态快照：`static_site.py` + Actions
 
 GitHub Pages 不能运行 Python 后端，所以本项目增加了静态快照模式：
 
@@ -166,7 +182,7 @@ python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA
 - 修改股票池和参数需要重新运行 workflow，或配置仓库变量 `QUANT_SYMBOLS`、`QUANT_UNIVERSE`、`QUANT_CASH`、`QUANT_FAST`、`QUANT_SLOW`、`QUANT_STRATEGY`、`QUANT_RANGE`、`QUANT_INTERVAL`。
 - 如果 GitHub Actions 运行时行情接口不可用，仍会使用样例行情兜底，页面会显示数据来源。
 
-## 7. 如何运行
+## 8. 如何运行
 
 ```bash
 python3 -m quant_trader.server --host 127.0.0.1 --port 8000
@@ -190,7 +206,7 @@ QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 python3 -m unittest discover -s tests
 ```
 
-## 8. 接入真实券商前必须补齐的内容
+## 9. 接入真实券商前必须补齐的内容
 
 本项目当前只做模拟交易，不会真实下单。若要接入真实券商或 sandbox，请先补齐：
 
