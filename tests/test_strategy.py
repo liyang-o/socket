@@ -3,10 +3,11 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from quant_trader.market_data import Bar, MarketSeries, parse_symbols, sample_intraday
+from quant_trader.market_data import Bar, MarketSeries, normalize_symbol, parse_symbols, sample_intraday
 from quant_trader.simulation import simulate_portfolio
 from quant_trader.indicators import bollinger_bands, relative_strength_index, simple_moving_average
 from quant_trader.strategy import available_strategies, generate_signals, sma_crossover_signals
+from quant_trader.universes import universe_symbols
 
 
 class StrategyTests(unittest.TestCase):
@@ -68,6 +69,14 @@ class StrategyTests(unittest.TestCase):
 
     def test_parse_symbols_normalizes_and_deduplicates(self) -> None:
         self.assertEqual(parse_symbols(" aapl,MSFT,aapl "), ["AAPL", "MSFT"])
+
+    def test_a_share_symbol_normalization(self) -> None:
+        self.assertEqual(normalize_symbol("600519"), "600519.SS")
+        self.assertEqual(normalize_symbol("sz000001"), "000001.SZ")
+
+    def test_universe_presets_include_us_top_100_and_a_shares(self) -> None:
+        self.assertEqual(len(universe_symbols("us_top_100")), 100)
+        self.assertIn("600519.SS", universe_symbols("a_share_core"))
 
 
 class SimulationTests(unittest.TestCase):

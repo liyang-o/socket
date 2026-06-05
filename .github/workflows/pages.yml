@@ -23,6 +23,10 @@ on:
         description: "Strategy key: sma_cross, rsi_reversion, bollinger_reversion, hybrid_reversion, momentum_rotation"
         default: "sma_cross"
         required: false
+      universe:
+        description: "Universe key: custom, us_top_100, a_share_core"
+        default: "custom"
+        required: false
       range:
         description: "Yahoo chart range, e.g. 1d, 1mo, 6mo, 1y"
         default: "6mo"
@@ -70,6 +74,7 @@ jobs:
           INPUT_FAST: ${{ github.event.inputs.fast }}
           INPUT_SLOW: ${{ github.event.inputs.slow }}
           INPUT_STRATEGY: ${{ github.event.inputs.strategy }}
+          INPUT_UNIVERSE: ${{ github.event.inputs.universe }}
           INPUT_RANGE: ${{ github.event.inputs.range }}
           INPUT_INTERVAL: ${{ github.event.inputs.interval }}
           VAR_SYMBOLS: ${{ vars.QUANT_SYMBOLS }}
@@ -77,6 +82,7 @@ jobs:
           VAR_FAST: ${{ vars.QUANT_FAST }}
           VAR_SLOW: ${{ vars.QUANT_SLOW }}
           VAR_STRATEGY: ${{ vars.QUANT_STRATEGY }}
+          VAR_UNIVERSE: ${{ vars.QUANT_UNIVERSE }}
           VAR_RANGE: ${{ vars.QUANT_RANGE }}
           VAR_INTERVAL: ${{ vars.QUANT_INTERVAL }}
         run: |
@@ -85,6 +91,7 @@ jobs:
           FAST="${INPUT_FAST:-${VAR_FAST:-12}}"
           SLOW="${INPUT_SLOW:-${VAR_SLOW:-26}}"
           STRATEGY="${INPUT_STRATEGY:-${VAR_STRATEGY:-sma_cross}}"
+          UNIVERSE="${INPUT_UNIVERSE:-${VAR_UNIVERSE:-custom}}"
           RANGE="${INPUT_RANGE:-${VAR_RANGE:-6mo}}"
           INTERVAL="${INPUT_INTERVAL:-${VAR_INTERVAL:-1d}}"
           python3 -m quant_trader.static_site \
@@ -94,6 +101,7 @@ jobs:
             --fast "$FAST" \
             --slow "$SLOW" \
             --strategy "$STRATEGY" \
+            --universe "$UNIVERSE" \
             --range "$RANGE" \
             --interval "$INTERVAL"
 

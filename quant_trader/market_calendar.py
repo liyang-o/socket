@@ -15,9 +15,14 @@ from zoneinfo import ZoneInfo
 
 MARKET_TZ_NAME = "America/New_York"
 MARKET_TZ = ZoneInfo(MARKET_TZ_NAME)
+CHINA_TZ_NAME = "Asia/Shanghai"
+CHINA_TZ = ZoneInfo(CHINA_TZ_NAME)
 REGULAR_OPEN = time(9, 30)
 REGULAR_CLOSE = time(16, 0)
 EARLY_CLOSE = time(13, 0)
+CHINA_MORNING_CLOSE = time(11, 30)
+CHINA_AFTERNOON_OPEN = time(13, 0)
+CHINA_CLOSE = time(15, 0)
 
 
 @dataclass(frozen=True)
@@ -100,8 +105,35 @@ def session_bounds(session_date: date) -> tuple[datetime, datetime] | None:
     return open_dt, close_dt
 
 
-def market_session_info(now: datetime | None = None) -> SessionInfo:
-    """Describe the current US equity session in exchange time."""
+def exchange_session_bounds(
+    session_date: date,
+    timezone_name: str = MARKET_TZ_NAME,
+) -> list[tuple[datetime, datetime]]:
+    """Return one or more regular-session windows for a supported exchange."""
+
+    if timezone_name == CHINA_TZ_NAME:
+        if china_holiday_reason(session_date) is not None:
+            return []
+        return [
+            (
+                datetime.combine(session_date, REGULAR_OPEN, tzinfo=CHINA_TZ),
+                datetime.combine(session_date, CHINA_MORNING_CLOSE, tzinfo=CHINA_TZ),
+            ),
+            (
+                datetime.combine(session_date, CHINA_AFTERNOON_OPEN, tzinfo=CHINA_TZ),
+                datetime.combine(session_date, CHINA_CLOSE, tzinfo=CHINA_TZ),
+            ),
+        ]
+
+    bounds = session_bounds(session_date)
+    return [bounds] if bounds is not None else []
+
+
+def market_session_info(now: datetime | None = None, timezone_name: str = MARKET_TZ_NAME) -> SessionInfo:
+    """Describe the current session in exchange time."""
+
+    if timezone_name == CHINA_TZ_NAME:
+        return _china_session_info(now)
 
     generated_at = now or datetime.now(timezone.utc)
     generated_et = generated_at.astimezone(MARKET_TZ)
@@ -169,11 +201,41 @@ def filter_regular_session_bars(bars: list, now: datetime | None = None) -> list
     ]
 
 
+def filter_exchange_session_bars(
+    bars: list,
+    timezone_name: str = MARKET_TZ_NAME,
+    now: datetime | None = None,
+) -> list:
+    """Keep bars within the supported exchange's regular session."""
+
+    if timezone_name == MARKET_TZ_NAME:
+        return filter_regular_session_bars(bars, now)
+    if timezone_name != CHINA_TZ_NAME:
+        return bars
+    if not bars:
+        return []
+
+    latest_day = _local_time(bars[-1].time, timezone_name).date()
+    windows = exchange_session_bounds(latest_day, timezone_name)
+    return [
+        bar
+        for bar in bars
+        if any(start <= _local_time(bar.time, timezone_name) <= end for start, end in windows)
+    ]
+
+
 def previous_trading_day(day: date) -> date:
     """Return the nearest trading day on or before ``day``."""
 
     current = day
     while session_bounds(current) is None:
+        current -= timedelta(days=1)
+    return current
+
+
+def previous_exchange_trading_day(day: date, timezone_name: str = MARKET_TZ_NAME) -> date:
+    current = day
+    while not exchange_session_bounds(current, timezone_name):
         current -= timedelta(days=1)
     return current
 
@@ -197,6 +259,18 @@ def market_holiday_reason(day: date) -> str | None:
         _observed(date(day.year, 12, 25)): "Christmas Day",
     }
     return holidays.get(day)
+
+
+def china_holiday_reason(day: date) -> str | None:
+    """Basic A-share trading calendar fallback.
+
+    This intentionally covers weekends only. Exchange holiday makeup days change
+    each year and should be sourced from an official calendar for production.
+    """
+
+    if day.weekday() >= 5:
+        return "Weekend"
+    return None
 
 
 def is_early_close(day: date) -> bool:
@@ -224,6 +298,64 @@ def _session_for_bars(bars: list, reference: datetime) -> date:
     latest_bar_day = to_market_time(bars[-1].time).date()
     reference_day = reference.astimezone(MARKET_TZ).date()
     return latest_bar_day if latest_bar_day <= reference_day else reference_day
+
+
+def _china_session_info(now: datetime | None) -> SessionInfo:
+    generated_at = now or datetime.now(timezone.utc)
+    generated_local = generated_at.astimezone(CHINA_TZ)
+    session_date = generated_local.date()
+    windows = exchange_session_bounds(session_date, CHINA_TZ_NAME)
+
+    if not windows:
+        return SessionInfo(
+            timezone=CHINA_TZ_NAME,
+            session_date=session_date.isoformat(),
+            is_trading_day=False,
+            is_open=False,
+            status="closed",
+            reason=china_holiday_reason(session_date) or "Market closed",
+            open_time_et=None,
+            close_time_et=None,
+            generated_at_utc=generated_at.astimezone(timezone.utc).isoformat(),
+            generated_at_et=timezone_time_label(generated_at, CHINA_TZ_NAME),
+        )
+
+    is_open = any(start <= generated_local <= end for start, end in windows)
+    if is_open:
+        status = "open"
+        reason = "Regular session is open"
+    elif windows[0][1] < generated_local < windows[1][0]:
+        status = "lunch_break"
+        reason = "Midday break"
+    elif generated_local < windows[0][0]:
+        status = "pre_market"
+        reason = "Regular session has not opened"
+    else:
+        status = "after_hours"
+        reason = "Regular session has closed"
+
+    return SessionInfo(
+        timezone=CHINA_TZ_NAME,
+        session_date=session_date.isoformat(),
+        is_trading_day=True,
+        is_open=is_open,
+        status=status,
+        reason=reason,
+        open_time_et=timezone_time_label(windows[0][0], CHINA_TZ_NAME),
+        close_time_et=timezone_time_label(windows[-1][1], CHINA_TZ_NAME),
+        generated_at_utc=generated_at.astimezone(timezone.utc).isoformat(),
+        generated_at_et=timezone_time_label(generated_at, CHINA_TZ_NAME),
+    )
+
+
+def _local_time(value: datetime | str, timezone_name: str) -> datetime:
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        parsed = value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(ZoneInfo(timezone_name))
 
 
 def _observed(day: date) -> date:
