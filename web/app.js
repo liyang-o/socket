@@ -9,6 +9,7 @@ const STATIC_DATA_URL = "data/latest.json";
 const THEME_KEY = "quant-paper-theme";
 
 const els = {
+  universeInput: document.querySelector("#universeInput"),
   symbolsInput: document.querySelector("#symbolsInput"),
   cashInput: document.querySelector("#cashInput"),
   strategyInput: document.querySelector("#strategyInput"),
@@ -84,6 +85,7 @@ async function runSimulation(options = {}) {
   hideError();
 
   const params = new URLSearchParams({
+    universe: els.universeInput.value,
     symbols: els.symbolsInput.value,
     strategy: els.strategyInput.value,
     range: els.rangeInput.value,
@@ -153,6 +155,7 @@ function syncControlsFromPayload(payload, mode) {
   const parameters = payload.parameters || {};
   if (mode === "static") {
     els.symbolsInput.value = symbols.join(",");
+    els.universeInput.value = parameters.universe || els.universeInput.value;
     els.strategyInput.value = parameters.strategy?.key || els.strategyInput.value;
     els.rangeInput.value = parameters.range || els.rangeInput.value;
     els.intervalInput.value = parameters.interval || els.intervalInput.value;
@@ -164,6 +167,7 @@ function syncControlsFromPayload(payload, mode) {
   const isStatic = mode === "static";
   for (const input of [
     els.symbolsInput,
+    els.universeInput,
     els.strategyInput,
     els.rangeInput,
     els.intervalInput,
@@ -180,6 +184,7 @@ function render() {
   if (!state.data) return;
 
   renderMetrics(state.data.portfolio);
+  renderUniverseOptions(state.data.parameters?.available_universes || []);
   renderStrategyOptions(state.data.parameters?.available_strategies || []);
   renderSymbolOptions(Object.keys(state.data.symbols));
 
@@ -201,8 +206,8 @@ function render() {
 }
 
 function renderMarketTime(selected) {
-  const session = state.data.portfolio.market_session || {};
   const timezone = selectedTimezone(selected);
+  const session = state.data.portfolio.market_sessions?.[timezone] || state.data.portfolio.market_session || {};
   const latestBar = selected.bars.at(-1)?.time_local || selected.latest_bar_time_et || "--";
   const currentExchangeTime = exchangeDateTimeLabel(new Date(), timezone);
   const modeText = state.mode === "static" ? "快照生成" : "本地刷新";
@@ -211,13 +216,12 @@ function renderMarketTime(selected) {
     : exchangeDateTimeLabel(new Date(), timezone);
   const range = state.data.parameters?.range || els.rangeInput.value;
   const interval = state.data.parameters?.interval || els.intervalInput.value;
-  const statusText = timezone === session.timezone
-    ? marketStatusText(session)
-    : "未接入该交易所日历";
+  const universe = universeLabel();
+  const statusText = timezone === session.timezone ? marketStatusText(session) : "未接入该交易所日历";
 
   els.updatedAt.textContent = `${modeText}: ${updatedAt}`;
   els.marketMeta.textContent = `交易状态: ${statusText} · 当前实际时间: ${currentExchangeTime}`;
-  els.latestBarMeta.textContent = `策略: ${strategyLabel()} · 数据: ${range}/${interval} · 最新 bar: ${latestBar}`;
+  els.latestBarMeta.textContent = `股票池: ${universe} · 策略: ${strategyLabel()} · 数据: ${range}/${interval} · 最新 bar: ${latestBar}`;
 }
 
 function marketStatusText(session) {
@@ -247,6 +251,12 @@ function strategyLabel() {
   return state.data.parameters?.strategy?.label || "SMA 双均线趋势";
 }
 
+function universeLabel() {
+  const selected = state.data.parameters?.universe || els.universeInput.value;
+  const universes = state.data.parameters?.available_universes || [];
+  return universes.find((universe) => universe.key === selected)?.label || "自定义";
+}
+
 function renderMetrics(portfolio) {
   els.equityMetric.textContent = money(portfolio.equity);
   els.returnMetric.textContent = `${portfolio.daily_return_pct.toFixed(2)}%`;
@@ -265,6 +275,23 @@ function renderSymbolOptions(symbols) {
     option.textContent = symbol;
     option.selected = symbol === state.selectedSymbol;
     els.symbolSelect.append(option);
+  }
+}
+
+function renderUniverseOptions(universes) {
+  if (!universes.length) return;
+
+  const selected = state.data.parameters?.universe || els.universeInput.value;
+  els.universeInput.innerHTML = "";
+  for (const universe of universes) {
+    const option = document.createElement("option");
+    option.value = universe.key;
+    option.textContent = universe.key === "custom"
+      ? universe.label
+      : `${universe.label} (${universe.count})`;
+    option.selected = universe.key === selected;
+    option.title = universe.description;
+    els.universeInput.append(option);
   }
 }
 

@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 import unittest
 
 from quant_trader.market_calendar import (
+    CHINA_TZ_NAME,
     market_holiday_reason,
     market_session_info,
     to_market_time,
@@ -56,6 +57,15 @@ class MarketCalendarTests(unittest.TestCase):
 
         self.assertGreater(len(bars), 100)
         self.assertIn("ET", bars[-1].time_et)
+
+    def test_china_market_session_supports_lunch_break(self) -> None:
+        info = market_session_info(
+            datetime(2026, 6, 5, 4, 0, tzinfo=timezone.utc),
+            CHINA_TZ_NAME,
+        )
+
+        self.assertEqual(info.timezone, CHINA_TZ_NAME)
+        self.assertEqual(info.status, "lunch_break")
 
 
 if __name__ == "__main__":

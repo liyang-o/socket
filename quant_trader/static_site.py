@@ -12,6 +12,7 @@ from typing import Any
 from .market_calendar import market_session_info
 from .market_data import fetch_intraday, parse_symbols
 from .simulation import simulate_portfolio
+from .universes import available_universes, normalize_universe, universe_symbols
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -26,13 +27,15 @@ def build_static_payload(
     fast_window: int,
     slow_window: int,
     strategy_name: str,
+    universe: str,
     commission_rate: float,
     data_range: str,
     interval: str,
 ) -> dict[str, Any]:
     """Build the same simulation payload used by the live API plus metadata."""
 
-    parsed_symbols = parse_symbols(symbols)
+    universe_key = normalize_universe(universe)
+    parsed_symbols = universe_symbols(universe_key) or parse_symbols(symbols)
     market = {
         symbol: fetch_intraday(symbol, data_range=data_range, interval=interval)
         for symbol in parsed_symbols
@@ -54,9 +57,12 @@ def build_static_payload(
         "generated_at_et": session.generated_at_et,
         "market_timezone": session.timezone,
         "symbols": parsed_symbols,
+        "universe": universe_key,
         "data_range": data_range,
         "interval": interval,
     }
+    payload["parameters"]["universe"] = universe_key
+    payload["parameters"]["available_universes"] = available_universes()
     return payload
 
 
@@ -68,6 +74,7 @@ def generate_static_site(
     fast_window: int = 12,
     slow_window: int = 26,
     strategy_name: str = "sma_cross",
+    universe: str = "custom",
     commission_rate: float = 0.001,
     data_range: str = "6mo",
     interval: str = "1d",
@@ -86,6 +93,7 @@ def generate_static_site(
         fast_window=fast_window,
         slow_window=slow_window,
         strategy_name=strategy_name,
+        universe=universe,
         commission_rate=commission_rate,
         data_range=data_range,
         interval=interval,
@@ -106,6 +114,7 @@ def main() -> None:
     parser.add_argument("--fast", default=12, type=int, help="Fast SMA window")
     parser.add_argument("--slow", default=26, type=int, help="Slow SMA window")
     parser.add_argument("--strategy", default="sma_cross", help="Registered strategy key")
+    parser.add_argument("--universe", default="custom", help="Universe key: custom, us_top_100, a_share_core")
     parser.add_argument("--commission", default=0.001, type=float, help="Commission rate")
     parser.add_argument("--range", default="6mo", help="Yahoo chart range")
     parser.add_argument("--interval", default="1d", help="Yahoo chart interval")
@@ -118,6 +127,7 @@ def main() -> None:
         fast_window=args.fast,
         slow_window=args.slow,
         strategy_name=args.strategy,
+        universe=args.universe,
         commission_rate=args.commission,
         data_range=args.range,
         interval=args.interval,

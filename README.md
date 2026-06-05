@@ -19,6 +19,30 @@
 | `trend_pullback` | 趋势过滤回调 | 混合 | 只在长期趋势向上时寻找 RSI/布林带短期回调 |
 | `regime_adaptive` | Regime 自适应 | 混合 | 在趋势、震荡均值回归和风险规避之间切换 |
 
+## 股票池和市场支持
+
+内置股票池：
+
+| universe key | 名称 | 说明 |
+| --- | --- | --- |
+| `custom` | 自定义 | 使用输入框中的股票代码 |
+| `us_top_100` | 美股热门 Top 100 | 覆盖大型科技、金融、消费、医疗、工业等高关注度美股 |
+| `a_share_core` | A股热门核心 | 覆盖沪深市场中高关注度的大盘、科技、消费和金融标的 |
+
+A 股通过 Yahoo Finance 代码访问：
+
+- `600519` / `sh600519` 会自动映射为 `600519.SS`
+- `000001` / `sz000001` 会自动映射为 `000001.SZ`
+- 也可以直接输入 `600519.SS,000001.SZ`
+
+交易时间显示：
+
+- 美股使用 `America/New_York`，常规时段 `09:30-16:00`。
+- A 股使用 `Asia/Shanghai`，常规时段 `09:30-11:30`、`13:00-15:00`。
+- 页面会根据所选股票的交易所时区显示当前实际时间和是否处于交易时段。
+
+> A 股当前支持常规交易时段和周末识别；法定节假日、调休交易日建议后续接入官方交易日历源。
+
 高 star、社区认可度较高的量化/回测项目经常用双均线交叉作为第一个教学策略：
 
 - [`kernc/backtesting.py`](https://github.com/kernc/backtesting.py)：高 star Python 回测库，官方示例包含 `SmaCross`。
@@ -80,6 +104,7 @@ QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 | `QUANT_FAST` | `12` | Fast SMA 窗口 |
 | `QUANT_SLOW` | `26` | Slow SMA 窗口 |
 | `QUANT_STRATEGY` | `sma_cross` | Pages 快照使用的策略 key |
+| `QUANT_UNIVERSE` | `custom` | 股票池 key |
 | `QUANT_RANGE` | `6mo` | 历史数据范围 |
 | `QUANT_INTERVAL` | `1d` | K 线周期 |
 
@@ -120,6 +145,7 @@ curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&stra
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `symbols` | `AAPL,MSFT` | 逗号分隔股票代码 |
+| `universe` | `custom` | 股票池 key；非 `custom` 时优先使用预设股票池 |
 | `strategy` | `sma_cross` | 策略 key，见上方策略表 |
 | `cash` | `100000` | 初始纸面资金 |
 | `fast` | `12` | 快速 SMA 窗口 |

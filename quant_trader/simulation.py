@@ -125,6 +125,7 @@ def simulate_portfolio(
                 symbol: series.exchange_timezone for symbol, series in market.items()
             },
             "market_session": market_session_info().to_dict(),
+            "market_sessions": _market_sessions_payload(market),
         },
         "symbols": symbol_results,
         "parameters": _parameters_payload(spec.key, config, commission_rate, data_range, interval),
@@ -252,6 +253,7 @@ def _simulate_momentum_rotation(
                 symbol: series.exchange_timezone for symbol, series in market.items()
             },
             "market_session": market_session_info().to_dict(),
+            "market_sessions": _market_sessions_payload(market),
         },
         "symbols": symbol_results,
         "parameters": _parameters_payload(spec.key, config, commission_rate, data_range, interval),
@@ -293,6 +295,14 @@ def _top_positive_momentum(scores: dict[str, float | None]) -> str | None:
     if not positive_scores:
         return None
     return max(positive_scores, key=positive_scores.get)
+
+
+def _market_sessions_payload(market: dict[str, MarketSeries]) -> dict[str, dict[str, object]]:
+    timezones = {series.exchange_timezone for series in market.values()}
+    return {
+        timezone: market_session_info(timezone_name=timezone).to_dict()
+        for timezone in sorted(timezones)
+    }
 
 
 def _replace_signal(point: StrategyPoint, signal: str) -> StrategyPoint:

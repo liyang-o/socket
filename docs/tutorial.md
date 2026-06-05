@@ -22,12 +22,27 @@ Bar(time, open, high, low, close, volume)
 America/New_York 09:30-16:00
 ```
 
+同时支持 A 股常规交易时段：
+
+```text
+Asia/Shanghai 09:30-11:30, 13:00-15:00
+```
+
 `market_calendar.py` 负责：
 
 - UTC 和美东时间转换。
+- UTC、美东时间和上海时间转换。
 - 识别工作日、周末和主要美股假日。
 - 识别常见 13:00 ET 半日收盘。
-- 为页面提供盘前、交易中、盘后、休市状态。
+- 为页面提供盘前、交易中、A股午间休市、盘后、休市状态。
+
+`universes.py` 提供内置股票池：
+
+- `us_top_100`：美股热门 Top 100。
+- `a_share_core`：A股热门核心。
+- `custom`：用户自定义输入。
+
+A 股代码会自动映射到 Yahoo Finance 格式，例如 `600519` -> `600519.SS`，`000001` -> `000001.SZ`。
 
 如果网络不可用、接口限流或返回数据太少，系统会自动调用 `sample_intraday()` 生成样例数据。样例数据也按最近一个美股交易 session 生成，而不是简单按当前 UTC 时间倒推。这保证课堂演示、CI 测试和离线环境都能正常启动，同时避免交易时间看起来脱离真实市场。
 
@@ -148,7 +163,7 @@ python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA
 
 - Pages 展示的是最近一次 workflow 生成的快照，不是毫秒级实时流。
 - 交易时间更接近真实美股常规时段，但仍是“定时快照 + 纸面交易重算”，不是券商撮合回报。
-- 修改股票池和参数需要重新运行 workflow，或配置仓库变量 `QUANT_SYMBOLS`、`QUANT_CASH`、`QUANT_FAST`、`QUANT_SLOW`、`QUANT_STRATEGY`、`QUANT_RANGE`、`QUANT_INTERVAL`。
+- 修改股票池和参数需要重新运行 workflow，或配置仓库变量 `QUANT_SYMBOLS`、`QUANT_UNIVERSE`、`QUANT_CASH`、`QUANT_FAST`、`QUANT_SLOW`、`QUANT_STRATEGY`、`QUANT_RANGE`、`QUANT_INTERVAL`。
 - 如果 GitHub Actions 运行时行情接口不可用，仍会使用样例行情兜底，页面会显示数据来源。
 
 ## 7. 如何运行

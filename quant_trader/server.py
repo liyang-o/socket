@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .market_data import fetch_intraday, parse_symbols
 from .simulation import simulate_portfolio
+from .universes import available_universes, normalize_universe, universe_symbols
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +37,8 @@ class QuantTraderHandler(SimpleHTTPRequestHandler):
     def _handle_simulate(self, query: str) -> None:
         params = parse_qs(query)
         try:
-            symbols = parse_symbols(_first(params, "symbols", "AAPL,MSFT"))
+            universe = normalize_universe(_first(params, "universe", "custom"))
+            symbols = universe_symbols(universe) or parse_symbols(_first(params, "symbols", "AAPL,MSFT"))
             fast_window = _int_param(params, "fast", 12)
             slow_window = _int_param(params, "slow", 26)
             strategy_name = _first(params, "strategy", "sma_cross")
@@ -59,6 +61,8 @@ class QuantTraderHandler(SimpleHTTPRequestHandler):
                 interval=interval,
                 commission_rate=commission_rate,
             )
+            result["parameters"]["universe"] = universe
+            result["parameters"]["available_universes"] = available_universes()
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
