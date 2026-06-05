@@ -68,6 +68,25 @@ def market_time_label(value: datetime | str) -> str:
     return market_dt.strftime("%Y-%m-%d %H:%M ET")
 
 
+def timezone_time_label(value: datetime | str, timezone_name: str = MARKET_TZ_NAME) -> str:
+    """Format a timestamp in an exchange/local timezone."""
+
+    if isinstance(value, str):
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+    else:
+        parsed = value
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    try:
+        target_tz = ZoneInfo(timezone_name)
+    except Exception:
+        target_tz = MARKET_TZ
+    return parsed.astimezone(target_tz).strftime("%Y-%m-%d %H:%M %Z")
+
+
 def session_bounds(session_date: date) -> tuple[datetime, datetime] | None:
     """Return open/close datetimes for a session date, or None if closed."""
 

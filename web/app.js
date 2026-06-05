@@ -11,6 +11,9 @@ const THEME_KEY = "quant-paper-theme";
 const els = {
   symbolsInput: document.querySelector("#symbolsInput"),
   cashInput: document.querySelector("#cashInput"),
+  strategyInput: document.querySelector("#strategyInput"),
+  rangeInput: document.querySelector("#rangeInput"),
+  intervalInput: document.querySelector("#intervalInput"),
   fastInput: document.querySelector("#fastInput"),
   slowInput: document.querySelector("#slowInput"),
   runButton: document.querySelector("#runButton"),
@@ -82,6 +85,9 @@ async function runSimulation(options = {}) {
 
   const params = new URLSearchParams({
     symbols: els.symbolsInput.value,
+    strategy: els.strategyInput.value,
+    range: els.rangeInput.value,
+    interval: els.intervalInput.value,
     cash: els.cashInput.value,
     fast: els.fastInput.value,
     slow: els.slowInput.value,
@@ -147,13 +153,24 @@ function syncControlsFromPayload(payload, mode) {
   const parameters = payload.parameters || {};
   if (mode === "static") {
     els.symbolsInput.value = symbols.join(",");
+    els.strategyInput.value = parameters.strategy?.key || els.strategyInput.value;
+    els.rangeInput.value = parameters.range || els.rangeInput.value;
+    els.intervalInput.value = parameters.interval || els.intervalInput.value;
     els.cashInput.value = payload.portfolio.initial_cash;
     els.fastInput.value = parameters.fast_window || els.fastInput.value;
     els.slowInput.value = parameters.slow_window || els.slowInput.value;
   }
 
   const isStatic = mode === "static";
-  for (const input of [els.symbolsInput, els.cashInput, els.fastInput, els.slowInput]) {
+  for (const input of [
+    els.symbolsInput,
+    els.strategyInput,
+    els.rangeInput,
+    els.intervalInput,
+    els.cashInput,
+    els.fastInput,
+    els.slowInput,
+  ]) {
     input.disabled = isStatic;
     input.title = isStatic ? "GitHub Pages 静态模式下参数由 Actions 工作流生成" : "";
   }
@@ -163,6 +180,7 @@ function render() {
   if (!state.data) return;
 
   renderMetrics(state.data.portfolio);
+  renderStrategyOptions(state.data.parameters?.available_strategies || []);
   renderSymbolOptions(Object.keys(state.data.symbols));
 
   const selected = state.data.symbols[state.selectedSymbol];
@@ -184,15 +202,22 @@ function render() {
 
 function renderMarketTime(selected) {
   const session = state.data.portfolio.market_session || {};
-  const latestBar = selected.latest_bar_time_et || selected.bars.at(-1)?.time_et || "--";
+  const timezone = selectedTimezone(selected);
+  const latestBar = selected.bars.at(-1)?.time_local || selected.latest_bar_time_et || "--";
+  const currentExchangeTime = exchangeDateTimeLabel(new Date(), timezone);
   const modeText = state.mode === "static" ? "快照生成" : "本地刷新";
   const updatedAt = state.mode === "static"
     ? state.data.metadata?.generated_at_et || dateTimeLabel(state.data.metadata?.generated_at)
-    : etDateTimeLabel(new Date());
+    : exchangeDateTimeLabel(new Date(), timezone);
+  const range = state.data.parameters?.range || els.rangeInput.value;
+  const interval = state.data.parameters?.interval || els.intervalInput.value;
+  const statusText = timezone === session.timezone
+    ? marketStatusText(session)
+    : "未接入该交易所日历";
 
   els.updatedAt.textContent = `${modeText}: ${updatedAt}`;
-  els.marketMeta.textContent = `美股状态: ${marketStatusText(session)} · ${session.session_date || "--"}`;
-  els.latestBarMeta.textContent = `最新行情 bar: ${latestBar}`;
+  els.marketMeta.textContent = `交易状态: ${statusText} · 当前实际时间: ${currentExchangeTime}`;
+  els.latestBarMeta.textContent = `策略: ${strategyLabel()} · 数据: ${range}/${interval} · 最新 bar: ${latestBar}`;
 }
 
 function marketStatusText(session) {
@@ -205,6 +230,21 @@ function marketStatusText(session) {
   const status = statusMap[session.status] || "未知";
   const close = session.close_time_et ? `，收盘 ${session.close_time_et}` : "";
   return `${status}${close}`;
+}
+
+function selectedTimezone(selected = null) {
+  const symbol = state.selectedSymbol;
+  return (
+    selected?.exchange_timezone ||
+    selected?.bars?.at(-1)?.timezone ||
+    state.data?.portfolio?.exchange_timezones?.[symbol] ||
+    state.data?.portfolio?.market_session?.timezone ||
+    "America/New_York"
+  );
+}
+
+function strategyLabel() {
+  return state.data.parameters?.strategy?.label || "SMA 双均线趋势";
 }
 
 function renderMetrics(portfolio) {
@@ -228,6 +268,21 @@ function renderSymbolOptions(symbols) {
   }
 }
 
+function renderStrategyOptions(strategies) {
+  if (!strategies.length) return;
+
+  const selected = state.data.parameters?.strategy?.key || els.strategyInput.value;
+  els.strategyInput.innerHTML = "";
+  for (const strategy of strategies) {
+    const option = document.createElement("option");
+    option.value = strategy.key;
+    option.textContent = strategy.label;
+    option.selected = strategy.key === selected;
+    option.title = strategy.description;
+    els.strategyInput.append(option);
+  }
+}
+
 function renderPriceChart(points, trades) {
   if (!points.length) {
     els.priceChart.innerHTML = '<p class="empty">没有行情数据</p>';
@@ -235,24 +290,44 @@ function renderPriceChart(points, trades) {
   }
 
   const values = points.flatMap((point) =>
-    [point.close, point.fast_sma, point.slow_sma].filter((value) => value !== null),
+    [
+      point.close,
+      point.fast_sma,
+      point.slow_sma,
+      point.bb_lower,
+      point.bb_middle,
+      point.bb_upper,
+    ].filter((value) => value !== null && value !== undefined),
   );
   const scale = makeScale(points.length, values, 760, 330);
   const svg = baseSvg(scale.width, scale.height);
 
   drawGrid(svg, scale);
+  const legend = [["Close", "#9be7ff"]];
   drawLine(svg, points.map((point) => point.close), scale, "#9be7ff", 3);
-  drawLine(svg, points.map((point) => point.fast_sma), scale, "#2ee59d", 1.8);
-  drawLine(svg, points.map((point) => point.slow_sma), scale, "#ffd166", 1.8);
+  if (hasSeries(points, "fast_sma")) {
+    drawLine(svg, points.map((point) => point.fast_sma), scale, "#2ee59d", 1.8);
+    legend.push(["Fast SMA", "#2ee59d"]);
+  }
+  if (hasSeries(points, "slow_sma")) {
+    drawLine(svg, points.map((point) => point.slow_sma), scale, "#ffd166", 1.8);
+    legend.push(["Slow SMA", "#ffd166"]);
+  }
+  if (hasSeries(points, "bb_upper")) {
+    drawLine(svg, points.map((point) => point.bb_upper), scale, "#8a7dff", 1.3);
+    drawLine(svg, points.map((point) => point.bb_middle), scale, "#ffd166", 1.2);
+    drawLine(svg, points.map((point) => point.bb_lower), scale, "#8a7dff", 1.3);
+    legend.push(["Bollinger", "#8a7dff"]);
+  }
   drawTradeMarkers(svg, points, trades, scale);
-  drawLegend(svg, [
-    ["Close", "#9be7ff"],
-    ["Fast SMA", "#2ee59d"],
-    ["Slow SMA", "#ffd166"],
-    ["Buy/Sell", "#ff6b7a"],
-  ]);
+  legend.push(["Buy/Sell", "#ff6b7a"]);
+  drawLegend(svg, legend);
 
   els.priceChart.replaceChildren(svg);
+}
+
+function hasSeries(points, key) {
+  return points.some((point) => point[key] !== null && point[key] !== undefined);
 }
 
 function renderEquityChart(points) {
@@ -477,11 +552,12 @@ function compactNumber(value) {
 
 function timeLabel(value) {
   return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "America/New_York",
+    timeZone: selectedTimezone(),
+    timeZoneName: "short",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(new Date(value)) + " ET";
+  }).format(new Date(value));
 }
 
 function dateTimeLabel(value) {
@@ -495,14 +571,20 @@ function dateTimeLabel(value) {
 }
 
 function etDateTimeLabel(value) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "America/New_York",
+  return exchangeDateTimeLabel(value, "America/New_York");
+}
+
+function exchangeDateTimeLabel(value, timezone) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: timezone || "America/New_York",
+    timeZoneName: "short",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(value) + " ET";
+  }).format(value);
+  return parts;
 }
 
 function setTone(element, value) {

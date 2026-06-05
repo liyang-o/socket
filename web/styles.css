@@ -156,7 +156,7 @@ label {
 
 .controls {
   display: grid;
-  grid-template-columns: 2fr repeat(3, minmax(8rem, 0.8fr)) auto auto;
+  grid-template-columns: 1.35fr 1.2fr repeat(5, minmax(6.5rem, 0.65fr)) auto auto;
   gap: 1rem;
   align-items: end;
   padding: 1rem;

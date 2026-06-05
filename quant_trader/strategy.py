@@ -1,16 +1,22 @@
-"""Simple moving-average crossover strategy.
-
-This follows the same teaching idea made popular by projects such as
-backtesting.py and vectorbt: calculate a fast and a slow moving average, buy
-when fast crosses above slow, and sell when fast crosses below slow.
-"""
+"""Extensible strategy registry and signal generators."""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Callable
 
+from .indicators import (
+    bollinger_bands,
+    momentum,
+    relative_strength_index,
+    rolling_stddev,
+    simple_moving_average,
+)
 from .market_calendar import market_time_label
 from .market_data import Bar
+
+
+DEFAULT_STRATEGY = "sma_cross"
 
 
 @dataclass(frozen=True)
@@ -19,6 +25,8 @@ class StrategyPoint:
 
     time: str
     time_et: str
+    time_local: str
+    timezone: str
     open: float
     high: float
     low: float
@@ -27,29 +35,101 @@ class StrategyPoint:
     fast_sma: float | None
     slow_sma: float | None
     signal: str
+    rsi: float | None = None
+    bb_lower: float | None = None
+    bb_middle: float | None = None
+    bb_upper: float | None = None
+    momentum: float | None = None
+    regime: str | None = None
 
     def to_dict(self) -> dict[str, float | int | str | None]:
         return asdict(self)
 
 
-def simple_moving_average(values: list[float], window: int) -> list[float | None]:
-    """Return an SMA series with ``None`` until enough data is available."""
+@dataclass(frozen=True)
+class StrategyConfig:
+    """Reusable indicator and strategy parameters."""
 
-    if window < 1:
-        raise ValueError("window must be greater than zero")
+    fast_window: int = 12
+    slow_window: int = 26
+    rsi_window: int = 14
+    rsi_oversold: float = 30
+    rsi_overbought: float = 70
+    bollinger_window: int = 20
+    bollinger_stddev: float = 2.0
+    momentum_window: int = 60
+    top_n: int = 1
 
-    result: list[float | None] = []
-    running_sum = 0.0
-    for index, value in enumerate(values):
-        running_sum += value
-        if index >= window:
-            running_sum -= values[index - window]
 
-        if index + 1 < window:
-            result.append(None)
-        else:
-            result.append(round(running_sum / window, 4))
-    return result
+@dataclass(frozen=True)
+class StrategySpec:
+    """Metadata for a registered strategy."""
+
+    key: str
+    label: str
+    category: str
+    description: str
+    portfolio_level: bool = False
+
+    def to_dict(self) -> dict[str, str | bool]:
+        return asdict(self)
+
+
+SignalGenerator = Callable[[list[Bar], StrategyConfig], list[StrategyPoint]]
+
+
+STRATEGY_SPECS: dict[str, StrategySpec] = {
+    "sma_cross": StrategySpec(
+        key="sma_cross",
+        label="SMA 双均线趋势",
+        category="trend",
+        description="fast SMA 上穿 slow SMA 买入，下穿卖出。适合趋势行情，震荡市容易反复交易。",
+    ),
+    "rsi_reversion": StrategySpec(
+        key="rsi_reversion",
+        label="RSI 均值回归",
+        category="mean_reversion",
+        description="RSI 跌破超卖阈值后等待回升买入，RSI 进入超买区卖出。适合短周期回归。",
+    ),
+    "bollinger_reversion": StrategySpec(
+        key="bollinger_reversion",
+        label="布林带均值回归",
+        category="mean_reversion",
+        description="价格跌破下轨后反弹买入，回到中轨附近卖出。适合区间震荡行情。",
+    ),
+    "hybrid_reversion": StrategySpec(
+        key="hybrid_reversion",
+        label="RSI + 布林带混合",
+        category="hybrid",
+        description="同时满足 RSI 超卖和价格接近布林下轨才买入，用中轨或 RSI 修复退出。",
+    ),
+    "momentum_rotation": StrategySpec(
+        key="momentum_rotation",
+        label="多资产动量轮动",
+        category="portfolio",
+        description="按 lookback 动量给股票排序，持有正动量最强标的。适合相对强弱轮动演示。",
+        portfolio_level=True,
+    ),
+    "dual_momentum": StrategySpec(
+        key="dual_momentum",
+        label="双动量轮动",
+        category="portfolio",
+        description="先筛选正绝对动量，再买入相对动量最强标的；弱市保持现金。",
+        portfolio_level=True,
+    ),
+    "trend_pullback": StrategySpec(
+        key="trend_pullback",
+        label="趋势过滤回调",
+        category="hybrid",
+        description="只在长期趋势向上时，用 RSI 和布林带寻找短期回调买点。",
+    ),
+    "regime_adaptive": StrategySpec(
+        key="regime_adaptive",
+        label="Regime 自适应",
+        category="hybrid",
+        description="根据动量、均线和波动状态在趋势、震荡均值回归和风险规避之间切换。",
+    ),
+}
 
 
 def sma_crossover_signals(
@@ -57,16 +137,62 @@ def sma_crossover_signals(
     fast_window: int = 12,
     slow_window: int = 26,
 ) -> list[StrategyPoint]:
-    """Annotate bars with SMA crossover buy/sell/hold signals."""
+    """Backward-compatible SMA crossover helper."""
 
-    if fast_window >= slow_window:
+    return _sma_cross_signals(
+        bars,
+        StrategyConfig(fast_window=fast_window, slow_window=slow_window),
+    )
+
+
+def available_strategies() -> list[dict[str, str | bool]]:
+    """Return strategies in UI-friendly form."""
+
+    return [spec.to_dict() for spec in STRATEGY_SPECS.values()]
+
+
+def strategy_spec(strategy_name: str) -> StrategySpec:
+    """Return metadata for a strategy key."""
+
+    key = normalize_strategy_name(strategy_name)
+    return STRATEGY_SPECS[key]
+
+
+def normalize_strategy_name(strategy_name: str | None) -> str:
+    """Validate and normalize a strategy key."""
+
+    key = (strategy_name or DEFAULT_STRATEGY).strip().lower()
+    if key not in STRATEGY_SPECS:
+        allowed = ", ".join(STRATEGY_SPECS)
+        raise ValueError(f"unknown strategy '{strategy_name}'. allowed: {allowed}")
+    return key
+
+
+def generate_signals(
+    bars: list[Bar],
+    strategy_name: str = DEFAULT_STRATEGY,
+    config: StrategyConfig | None = None,
+) -> list[StrategyPoint]:
+    """Generate strategy points for a registered symbol-level strategy."""
+
+    key = normalize_strategy_name(strategy_name)
+    spec = STRATEGY_SPECS[key]
+    if spec.portfolio_level:
+        return _momentum_points(bars, config or StrategyConfig())
+
+    generator = _SIGNAL_GENERATORS[key]
+    return generator(bars, config or StrategyConfig())
+
+
+def _sma_cross_signals(bars: list[Bar], config: StrategyConfig) -> list[StrategyPoint]:
+    if config.fast_window >= config.slow_window:
         raise ValueError("fast_window must be smaller than slow_window")
     if not bars:
         return []
 
     closes = [bar.close for bar in bars]
-    fast = simple_moving_average(closes, fast_window)
-    slow = simple_moving_average(closes, slow_window)
+    fast = simple_moving_average(closes, config.fast_window)
+    slow = simple_moving_average(closes, config.slow_window)
 
     points: list[StrategyPoint] = []
     previous_fast: float | None = None
@@ -89,6 +215,8 @@ def sma_crossover_signals(
             StrategyPoint(
                 time=bar.time,
                 time_et=bar.time_et or market_time_label(bar.time),
+                time_local=bar.time_local,
+                timezone=bar.timezone,
                 open=bar.open,
                 high=bar.high,
                 low=bar.low,
@@ -105,3 +233,260 @@ def sma_crossover_signals(
             previous_slow = current_slow
 
     return points
+
+
+def _rsi_reversion_signals(bars: list[Bar], config: StrategyConfig) -> list[StrategyPoint]:
+    closes = [bar.close for bar in bars]
+    rsi_values = relative_strength_index(closes, config.rsi_window)
+    points: list[StrategyPoint] = []
+    previous_rsi: float | None = None
+
+    for index, bar in enumerate(bars):
+        current_rsi = rsi_values[index]
+        signal = "hold"
+        if previous_rsi is not None and current_rsi is not None:
+            if previous_rsi < config.rsi_oversold and current_rsi >= config.rsi_oversold:
+                signal = "buy"
+            elif previous_rsi < config.rsi_overbought <= current_rsi:
+                signal = "sell"
+
+        points.append(_point(bar, signal=signal, rsi=current_rsi))
+        if current_rsi is not None:
+            previous_rsi = current_rsi
+
+    return points
+
+
+def _bollinger_reversion_signals(bars: list[Bar], config: StrategyConfig) -> list[StrategyPoint]:
+    closes = [bar.close for bar in bars]
+    lower, middle, upper = bollinger_bands(
+        closes,
+        config.bollinger_window,
+        config.bollinger_stddev,
+    )
+    points: list[StrategyPoint] = []
+    previous_close: float | None = None
+    previous_lower: float | None = None
+    previous_middle: float | None = None
+
+    for index, bar in enumerate(bars):
+        signal = "hold"
+        current_lower = lower[index]
+        current_middle = middle[index]
+        if None not in (previous_close, previous_lower, previous_middle, current_lower, current_middle):
+            crossed_below_lower = previous_close >= previous_lower and bar.close < current_lower
+            crossed_above_middle = previous_close <= previous_middle and bar.close > current_middle
+            if crossed_below_lower:
+                signal = "buy"
+            elif crossed_above_middle:
+                signal = "sell"
+
+        points.append(
+            _point(
+                bar,
+                signal=signal,
+                bb_lower=current_lower,
+                bb_middle=current_middle,
+                bb_upper=upper[index],
+            )
+        )
+        previous_close = bar.close
+        if current_lower is not None:
+            previous_lower = current_lower
+        if current_middle is not None:
+            previous_middle = current_middle
+
+    return points
+
+
+def _hybrid_reversion_signals(bars: list[Bar], config: StrategyConfig) -> list[StrategyPoint]:
+    closes = [bar.close for bar in bars]
+    rsi_values = relative_strength_index(closes, config.rsi_window)
+    lower, middle, upper = bollinger_bands(
+        closes,
+        config.bollinger_window,
+        config.bollinger_stddev,
+    )
+    points: list[StrategyPoint] = []
+    armed = False
+
+    for index, bar in enumerate(bars):
+        current_rsi = rsi_values[index]
+        current_lower = lower[index]
+        current_middle = middle[index]
+        signal = "hold"
+        if current_rsi is not None and current_lower is not None:
+            oversold_near_band = current_rsi <= config.rsi_oversold and bar.close <= current_lower
+            if oversold_near_band:
+                armed = True
+            elif armed and current_middle is not None and bar.close >= current_middle:
+                signal = "buy"
+                armed = False
+            elif current_rsi >= config.rsi_overbought:
+                signal = "sell"
+                armed = False
+
+        points.append(
+            _point(
+                bar,
+                signal=signal,
+                rsi=current_rsi,
+                bb_lower=current_lower,
+                bb_middle=current_middle,
+                bb_upper=upper[index],
+            )
+        )
+
+    return points
+
+
+def _trend_pullback_signals(bars: list[Bar], config: StrategyConfig) -> list[StrategyPoint]:
+    closes = [bar.close for bar in bars]
+    slow = simple_moving_average(closes, max(config.slow_window, config.bollinger_window))
+    rsi_values = relative_strength_index(closes, config.rsi_window)
+    lower, middle, upper = bollinger_bands(
+        closes,
+        config.bollinger_window,
+        config.bollinger_stddev,
+    )
+    points: list[StrategyPoint] = []
+
+    for index, bar in enumerate(bars):
+        trend_ok = slow[index] is not None and bar.close > slow[index]
+        pullback = (
+            trend_ok
+            and rsi_values[index] is not None
+            and lower[index] is not None
+            and rsi_values[index] <= config.rsi_oversold
+            and bar.close <= lower[index]
+        )
+        repaired = (
+            middle[index] is not None
+            and (bar.close >= middle[index] or (rsi_values[index] or 0) >= config.rsi_overbought)
+        )
+        broken_trend = slow[index] is not None and bar.close < slow[index]
+
+        signal = "buy" if pullback else "sell" if repaired or broken_trend else "hold"
+        points.append(
+            _point(
+                bar,
+                signal=signal,
+                slow_sma=slow[index],
+                rsi=rsi_values[index],
+                bb_lower=lower[index],
+                bb_middle=middle[index],
+                bb_upper=upper[index],
+                regime="trend_pullback" if trend_ok else "risk_off",
+            )
+        )
+
+    return points
+
+
+def _regime_adaptive_signals(bars: list[Bar], config: StrategyConfig) -> list[StrategyPoint]:
+    closes = [bar.close for bar in bars]
+    fast = simple_moving_average(closes, config.fast_window)
+    slow = simple_moving_average(closes, config.slow_window)
+    rsi_values = relative_strength_index(closes, config.rsi_window)
+    lower, middle, upper = bollinger_bands(closes, config.bollinger_window, config.bollinger_stddev)
+    momentum_values = momentum(closes, config.momentum_window)
+    returns = [0.0] + [
+        ((closes[index] / closes[index - 1]) - 1) * 100 if closes[index - 1] else 0.0
+        for index in range(1, len(closes))
+    ]
+    volatility = rolling_stddev(returns, max(5, config.rsi_window))
+    sma_points = _sma_cross_signals(bars, config)
+    hybrid_points = _hybrid_reversion_signals(bars, config)
+
+    points: list[StrategyPoint] = []
+    for index, bar in enumerate(bars):
+        current_momentum = momentum_values[index]
+        current_volatility = volatility[index]
+        trend_up = fast[index] is not None and slow[index] is not None and fast[index] > slow[index]
+        risk_off = (
+            current_momentum is not None
+            and current_momentum < -2
+            and current_volatility is not None
+            and current_volatility > 0.8
+        )
+
+        if risk_off:
+            regime = "risk_off"
+            signal = "sell"
+        elif trend_up and (current_momentum is None or current_momentum >= 0):
+            regime = "trend"
+            signal = sma_points[index].signal
+        else:
+            regime = "range"
+            signal = hybrid_points[index].signal
+
+        points.append(
+            _point(
+                bar,
+                signal=signal,
+                fast_sma=fast[index],
+                slow_sma=slow[index],
+                rsi=rsi_values[index],
+                bb_lower=lower[index],
+                bb_middle=middle[index],
+                bb_upper=upper[index],
+                momentum=current_momentum,
+                regime=regime,
+            )
+        )
+
+    return points
+
+
+def _momentum_points(bars: list[Bar], config: StrategyConfig) -> list[StrategyPoint]:
+    closes = [bar.close for bar in bars]
+    momentum_values = momentum(closes, config.momentum_window)
+    return [
+        _point(bar, signal="hold", momentum=momentum_values[index])
+        for index, bar in enumerate(bars)
+    ]
+
+
+def _point(
+    bar: Bar,
+    *,
+    signal: str,
+    fast_sma: float | None = None,
+    slow_sma: float | None = None,
+    rsi: float | None = None,
+    bb_lower: float | None = None,
+    bb_middle: float | None = None,
+    bb_upper: float | None = None,
+    momentum: float | None = None,
+    regime: str | None = None,
+) -> StrategyPoint:
+    return StrategyPoint(
+        time=bar.time,
+        time_et=bar.time_et or market_time_label(bar.time),
+        time_local=bar.time_local,
+        timezone=bar.timezone,
+        open=bar.open,
+        high=bar.high,
+        low=bar.low,
+        close=bar.close,
+        volume=bar.volume,
+        fast_sma=fast_sma,
+        slow_sma=slow_sma,
+        signal=signal,
+        rsi=rsi,
+        bb_lower=bb_lower,
+        bb_middle=bb_middle,
+        bb_upper=bb_upper,
+        momentum=momentum,
+        regime=regime,
+    )
+
+
+_SIGNAL_GENERATORS: dict[str, SignalGenerator] = {
+    "sma_cross": _sma_cross_signals,
+    "rsi_reversion": _rsi_reversion_signals,
+    "bollinger_reversion": _bollinger_reversion_signals,
+    "hybrid_reversion": _hybrid_reversion_signals,
+    "trend_pullback": _trend_pullback_signals,
+    "regime_adaptive": _regime_adaptive_signals,
+}

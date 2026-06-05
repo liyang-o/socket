@@ -25,6 +25,7 @@ def build_static_payload(
     initial_cash: float,
     fast_window: int,
     slow_window: int,
+    strategy_name: str,
     commission_rate: float,
     data_range: str,
     interval: str,
@@ -41,6 +42,9 @@ def build_static_payload(
         initial_cash=initial_cash,
         fast_window=fast_window,
         slow_window=slow_window,
+        strategy_name=strategy_name,
+        data_range=data_range,
+        interval=interval,
         commission_rate=commission_rate,
     )
     session = market_session_info()
@@ -63,9 +67,10 @@ def generate_static_site(
     initial_cash: float = 100_000,
     fast_window: int = 12,
     slow_window: int = 26,
+    strategy_name: str = "sma_cross",
     commission_rate: float = 0.001,
-    data_range: str = "1d",
-    interval: str = "1m",
+    data_range: str = "6mo",
+    interval: str = "1d",
 ) -> Path:
     """Copy web assets and write the latest simulation JSON snapshot."""
 
@@ -80,6 +85,7 @@ def generate_static_site(
         initial_cash=initial_cash,
         fast_window=fast_window,
         slow_window=slow_window,
+        strategy_name=strategy_name,
         commission_rate=commission_rate,
         data_range=data_range,
         interval=interval,
@@ -99,9 +105,10 @@ def main() -> None:
     parser.add_argument("--cash", default=100_000, type=float, help="Initial paper cash")
     parser.add_argument("--fast", default=12, type=int, help="Fast SMA window")
     parser.add_argument("--slow", default=26, type=int, help="Slow SMA window")
+    parser.add_argument("--strategy", default="sma_cross", help="Registered strategy key")
     parser.add_argument("--commission", default=0.001, type=float, help="Commission rate")
-    parser.add_argument("--range", default="1d", help="Yahoo chart range")
-    parser.add_argument("--interval", default="1m", help="Yahoo chart interval")
+    parser.add_argument("--range", default="6mo", help="Yahoo chart range")
+    parser.add_argument("--interval", default="1d", help="Yahoo chart interval")
     args = parser.parse_args()
 
     output = generate_static_site(
@@ -110,6 +117,7 @@ def main() -> None:
         initial_cash=args.cash,
         fast_window=args.fast,
         slow_window=args.slow,
+        strategy_name=args.strategy,
         commission_rate=args.commission,
         data_range=args.range,
         interval=args.interval,

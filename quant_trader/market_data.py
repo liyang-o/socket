@@ -17,12 +17,14 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .market_calendar import (
+    MARKET_TZ_NAME,
     MARKET_TZ,
     filter_regular_session_bars,
     market_session_info,
     market_time_label,
     previous_trading_day,
     session_bounds,
+    timezone_time_label,
     to_utc_iso,
 )
 
@@ -42,10 +44,13 @@ class Bar:
     close: float
     volume: int
     time_et: str = ""
+    time_local: str = ""
+    timezone: str = MARKET_TZ_NAME
 
     def to_dict(self) -> dict[str, float | int | str]:
         payload = asdict(self)
         payload["time_et"] = self.time_et or market_time_label(self.time)
+        payload["time_local"] = self.time_local or timezone_time_label(self.time, self.timezone)
         return payload
 
 
@@ -56,11 +61,17 @@ class MarketSeries:
     symbol: str
     source: str
     bars: list[Bar]
+    exchange_timezone: str = MARKET_TZ_NAME
+    data_range: str = ""
+    interval: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
             "symbol": self.symbol,
             "source": self.source,
+            "exchange_timezone": self.exchange_timezone,
+            "data_range": self.data_range,
+            "interval": self.interval,
             "bars": [bar.to_dict() for bar in self.bars],
         }
 
@@ -94,7 +105,7 @@ def parse_symbols(raw_symbols: str | Iterable[str]) -> list[str]:
     return symbols
 
 
-def fetch_intraday(symbol: str, data_range: str = "1d", interval: str = "1m") -> MarketSeries:
+def fetch_intraday(symbol: str, data_range: str = "6mo", interval: str = "1d") -> MarketSeries:
     """Fetch recent bars for a symbol, falling back to generated sample data.
 
     Set ``QUANT_TRADER_OFFLINE=1`` to force deterministic sample data. This
@@ -103,19 +114,34 @@ def fetch_intraday(symbol: str, data_range: str = "1d", interval: str = "1m") ->
 
     normalized = normalize_symbol(symbol)
     if os.getenv("QUANT_TRADER_OFFLINE") == "1":
-        return MarketSeries(normalized, "sample", sample_intraday(normalized))
+        return MarketSeries(
+            normalized,
+            "sample",
+            sample_bars(normalized, data_range=data_range, interval=interval),
+            data_range=data_range,
+            interval=interval,
+        )
 
     try:
-        bars = filter_regular_session_bars(_fetch_yahoo_chart(normalized, data_range, interval))
+        bars, exchange_timezone = _fetch_yahoo_chart(normalized, data_range, interval)
+        if _should_filter_regular_session(interval, exchange_timezone):
+            bars = filter_regular_session_bars(bars)
     except (HTTPError, URLError, TimeoutError, KeyError, IndexError, TypeError, ValueError):
         bars = []
+        exchange_timezone = MARKET_TZ_NAME
 
     if len(bars) < 30:
-        return MarketSeries(normalized, "sample", sample_intraday(normalized))
-    return MarketSeries(normalized, "yahoo", bars)
+        return MarketSeries(
+            normalized,
+            "sample",
+            sample_bars(normalized, data_range=data_range, interval=interval),
+            data_range=data_range,
+            interval=interval,
+        )
+    return MarketSeries(normalized, "yahoo", bars, exchange_timezone, data_range, interval)
 
 
-def _fetch_yahoo_chart(symbol: str, data_range: str, interval: str) -> list[Bar]:
+def _fetch_yahoo_chart(symbol: str, data_range: str, interval: str) -> tuple[list[Bar], str]:
     query = urlencode(
         {
             "range": data_range,
@@ -131,6 +157,8 @@ def _fetch_yahoo_chart(symbol: str, data_range: str, interval: str) -> list[Bar]
         payload = json.loads(response.read().decode("utf-8"))
 
     result = payload["chart"]["result"][0]
+    meta = result.get("meta", {})
+    exchange_timezone = meta.get("exchangeTimezoneName") or MARKET_TZ_NAME
     timestamps = result["timestamp"]
     quote = result["indicators"]["quote"][0]
 
@@ -158,9 +186,19 @@ def _fetch_yahoo_chart(symbol: str, data_range: str, interval: str) -> list[Bar]
                 close=round(close, 4),
                 volume=int(volume),
                 time_et=market_time_label(timestamp),
+                time_local=timezone_time_label(timestamp, exchange_timezone),
+                timezone=exchange_timezone,
             )
         )
-    return bars
+    return bars, exchange_timezone
+
+
+def sample_bars(symbol: str, data_range: str = "6mo", interval: str = "1d") -> list[Bar]:
+    """Generate fallback bars that match the requested interval style."""
+
+    if _is_intraday_interval(interval):
+        return sample_intraday(symbol)
+    return sample_history(symbol, points=_range_to_daily_points(data_range))
 
 
 def sample_intraday(symbol: str, points: int = 391, now: datetime | None = None) -> list[Bar]:
@@ -196,6 +234,54 @@ def sample_intraday(symbol: str, points: int = 391, now: datetime | None = None)
                 close=round(close, 4),
                 volume=volume,
                 time_et=market_time_label(current_time),
+                time_local=timezone_time_label(current_time, MARKET_TZ_NAME),
+                timezone=MARKET_TZ_NAME,
+            )
+        )
+        previous_close = close
+    return bars
+
+
+def sample_history(symbol: str, points: int = 252, now: datetime | None = None) -> list[Bar]:
+    """Generate daily historical bars on recent US trading days."""
+
+    seed = sum(ord(ch) for ch in symbol)
+    base_price = 70 + seed % 180
+    reference = now or datetime.now(MARKET_TZ)
+    current_day = previous_trading_day(reference.astimezone(MARKET_TZ).date())
+    trading_days = []
+    while len(trading_days) < points:
+        trading_days.append(current_day)
+        current_day = previous_trading_day(current_day - timedelta(days=1))
+    trading_days.reverse()
+
+    bars: list[Bar] = []
+    previous_close = float(base_price)
+    for index, trading_day in enumerate(trading_days):
+        progress = index / max(points - 1, 1)
+        trend = ((seed % 11) - 5) / 1200
+        cycle = math.sin(index / 17 + seed) * 0.018
+        slow_cycle = math.sin(index / 53 + seed / 5) * 0.012
+        close = max(1.0, base_price * (1 + trend * index + cycle + slow_cycle + progress * 0.015))
+        high = max(previous_close, close) * (1 + 0.006)
+        low = min(previous_close, close) * (1 - 0.006)
+        volume = 500_000 + ((seed * 193 + index * 104729) % 6_000_000)
+        bounds = session_bounds(trading_day)
+        if bounds is None:
+            continue
+        timestamp = bounds[1]
+
+        bars.append(
+            Bar(
+                time=to_utc_iso(timestamp),
+                open=round(previous_close, 4),
+                high=round(high, 4),
+                low=round(low, 4),
+                close=round(close, 4),
+                volume=volume,
+                time_et=market_time_label(timestamp),
+                time_local=timezone_time_label(timestamp, MARKET_TZ_NAME),
+                timezone=MARKET_TZ_NAME,
             )
         )
         previous_close = close
@@ -229,3 +315,24 @@ def _safe_float(value: object) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _is_intraday_interval(interval: str) -> bool:
+    normalized = interval.lower()
+    return normalized.endswith("m") or normalized.endswith("h")
+
+
+def _should_filter_regular_session(interval: str, exchange_timezone: str) -> bool:
+    return _is_intraday_interval(interval) and exchange_timezone == MARKET_TZ_NAME
+
+
+def _range_to_daily_points(data_range: str) -> int:
+    return {
+        "5d": 5,
+        "1mo": 22,
+        "3mo": 66,
+        "6mo": 132,
+        "1y": 252,
+        "2y": 504,
+        "5y": 1260,
+    }.get(data_range, 252)

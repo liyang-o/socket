@@ -21,6 +21,7 @@ class StaticSiteTests(unittest.TestCase):
                     initial_cash=20_000,
                     fast_window=4,
                     slow_window=9,
+                    strategy_name="hybrid_reversion",
                 )
 
                 snapshot_path = output / "data" / "latest.json"
@@ -31,6 +32,7 @@ class StaticSiteTests(unittest.TestCase):
                 snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
                 self.assertEqual(snapshot["metadata"]["mode"], "github_pages_snapshot")
                 self.assertEqual(snapshot["metadata"]["symbols"], ["AAPL", "MSFT"])
+                self.assertEqual(snapshot["parameters"]["strategy"]["key"], "hybrid_reversion")
                 self.assertEqual(snapshot["parameters"]["fast_window"], 4)
                 self.assertIn("portfolio", snapshot)
         finally:

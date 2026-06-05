@@ -1,10 +1,23 @@
 # Quant Paper Trader
 
-一个轻量级量化模拟交易教学项目：从公开日内行情拉取数据，运行移动均线交叉策略，使用纸面账户模拟买卖，并用网页展示当日收益、所选股票涨跌曲线、持仓和交易记录。网页支持暗色/亮色主题切换。
+一个轻量级量化模拟交易教学项目：从公开日内行情拉取数据，运行可扩展策略池，使用纸面账户模拟买卖，并用网页展示当日收益、所选股票涨跌曲线、持仓和交易记录。网页支持暗色/亮色主题切换。
 
 > 免责声明：本项目仅用于编程、量化入门和模拟交易教学，不构成投资建议，也不会向真实券商下单。
 
-## 为什么选 SMA 交叉策略
+## 策略设计
+
+近期量化实践更强调“策略池 + regime/risk layer”，而不是押注单一指标。趋势市常用动量/均线，震荡市常用 RSI、布林带等均值回归，组合层再用相对强弱做轮动。本项目先实现一组无外部依赖、适合教学和扩展的策略：
+
+| 策略 key | 名称 | 类型 | 适用场景 |
+| --- | --- | --- | --- |
+| `sma_cross` | SMA 双均线趋势 | 趋势跟随 | 趋势明确时，fast SMA 上穿/下穿 slow SMA |
+| `rsi_reversion` | RSI 均值回归 | 均值回归 | 短周期超卖修复/超买退出 |
+| `bollinger_reversion` | 布林带均值回归 | 均值回归 | 区间震荡，价格偏离下轨后回归中轨 |
+| `hybrid_reversion` | RSI + 布林带混合 | 混合 | 同时用动量强弱和波动带过滤假信号 |
+| `momentum_rotation` | 多资产动量轮动 | 组合级 | 在多只股票中持有正动量最强标的 |
+| `dual_momentum` | 双动量轮动 | 组合级 | 先要求绝对动量为正，再选择相对动量最强标的 |
+| `trend_pullback` | 趋势过滤回调 | 混合 | 只在长期趋势向上时寻找 RSI/布林带短期回调 |
+| `regime_adaptive` | Regime 自适应 | 混合 | 在趋势、震荡均值回归和风险规避之间切换 |
 
 高 star、社区认可度较高的量化/回测项目经常用双均线交叉作为第一个教学策略：
 
@@ -14,10 +27,11 @@
 本仓库没有直接复制这些项目的代码，而是把核心思想重构为更小、更易读的教学实现：
 
 1. `market_data` 拉取 Yahoo Finance 日内 chart 数据，并过滤到美股常规交易时段 09:30-16:00 ET；网络不可用时用按美股交易日生成的样例行情兜底。
-2. `strategy` 计算 fast/slow SMA，并在交叉时生成 `buy` / `sell` 信号。
-3. `broker` 使用纸面账户模拟手续费、现金、持仓和交易记录。
-4. `simulation` 聚合多只股票的当日收益。
-5. `web` 用原生 SVG 画出类似 graphing calculator 的坐标网格与曲线。
+2. `indicators` 复用 SMA、RSI、布林带、动量等指标。
+3. `strategy` 通过注册表管理策略，生成 `buy` / `sell` / `hold` 信号。
+4. `broker` 使用纸面账户模拟手续费、现金、持仓和交易记录。
+5. `simulation` 聚合多只股票的当日收益，并支持组合级动量轮动。
+6. `web` 用原生 SVG 画出类似 graphing calculator 的坐标网格与曲线。
 
 ## 快速开始
 
@@ -65,11 +79,14 @@ QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 | `QUANT_CASH` | `100000` | 初始纸面资金 |
 | `QUANT_FAST` | `12` | Fast SMA 窗口 |
 | `QUANT_SLOW` | `26` | Slow SMA 窗口 |
+| `QUANT_STRATEGY` | `sma_cross` | Pages 快照使用的策略 key |
+| `QUANT_RANGE` | `6mo` | 历史数据范围 |
+| `QUANT_INTERVAL` | `1d` | K 线周期 |
 
 也可以本地生成同样的静态站点：
 
 ```bash
-QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA
+QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA --strategy regime_adaptive --range 1y --interval 1d
 ```
 
 生成结果：
@@ -95,7 +112,7 @@ curl http://127.0.0.1:8000/api/health
 ### 运行模拟交易
 
 ```bash
-curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&fast=12&slow=26"
+curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&strategy=dual_momentum&range=1y&interval=1d"
 ```
 
 常用参数：
@@ -103,20 +120,29 @@ curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&fast
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `symbols` | `AAPL,MSFT` | 逗号分隔股票代码 |
+| `strategy` | `sma_cross` | 策略 key，见上方策略表 |
 | `cash` | `100000` | 初始纸面资金 |
 | `fast` | `12` | 快速 SMA 窗口 |
 | `slow` | `26` | 慢速 SMA 窗口，必须大于 fast |
 | `commission` | `0.001` | 单边手续费率 |
-| `range` | `1d` | Yahoo chart range |
-| `interval` | `1m` | Yahoo chart interval |
+| `range` | `6mo` | Yahoo chart range；历史策略建议 `6mo`、`1y` 或更长 |
+| `interval` | `1d` | Yahoo chart interval；可切换 `1d` 历史日线或 `1m`/`5m` 日内 |
+
+网页状态卡会显示：
+
+- 当前交易状态。
+- 所选股票交易所时区的当前实际时间。
+- 最新行情 bar 的交易所本地时间。
+- 当前策略和数据周期。
 
 ## 项目结构
 
 ```text
 quant_trader/
+  indicators.py    # SMA、RSI、布林带、动量等复用指标
   market_data.py   # 行情拉取与样例行情
   market_calendar.py # 美股交易日历、时区和常规时段
-  strategy.py      # SMA 交叉信号
+  strategy.py      # 策略注册表与信号生成
   broker.py        # 纸面经纪账户
   simulation.py    # 多股票组合模拟
   server.py        # HTTP API + 静态页面服务
@@ -142,6 +168,6 @@ python3 -m unittest discover -s tests
 ## 后续扩展方向
 
 - 接入正式券商 sandbox，例如 Alpaca Paper Trading 或 Interactive Brokers Paper Account。
-- 增加更多策略指标，例如 RSI、布林带、动量轮动。
+- 增加 regime detector、仓位管理、止损/止盈和波动率目标。
 - 将模拟状态持久化到 SQLite，方便复盘每日交易。
 - 引入 WebSocket 或 Server-Sent Events，减少轮询刷新。
