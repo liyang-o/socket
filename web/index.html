@@ -53,6 +53,7 @@
             <option value="dual_momentum">双动量轮动</option>
             <option value="trend_pullback">趋势过滤回调</option>
             <option value="regime_adaptive">Regime 自适应</option>
+            <option value="multi_factor_top">多因子 Top N</option>
           </select>
         </label>
         <label>
@@ -87,6 +88,10 @@
           Slow SMA
           <input id="slowInput" type="number" min="3" value="26" />
         </label>
+        <label>
+          Top N
+          <input id="topNInput" type="number" min="1" max="50" value="10" />
+        </label>
         <button id="runButton">运行模拟</button>
         <label class="check-row">
           <input id="autoRefresh" type="checkbox" checked />
@@ -110,6 +115,18 @@
         <article class="metric">
           <span>交易次数</span>
           <strong id="tradesMetric">--</strong>
+        </article>
+        <article class="metric">
+          <span>最大回撤</span>
+          <strong id="drawdownMetric">--</strong>
+        </article>
+        <article class="metric">
+          <span>Sharpe</span>
+          <strong id="sharpeMetric">--</strong>
+        </article>
+        <article class="metric">
+          <span>胜率</span>
+          <strong id="winRateMetric">--</strong>
         </article>
       </section>
 

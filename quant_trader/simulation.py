@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from .broker import EquityPoint, PaperBroker
+from .factors import compute_factor_scores, select_top_scores, volatility_inverse_weights
 from .market_calendar import market_session_info, market_time_label
 from .market_data import MarketSeries
+from .metrics import performance_report
 from .strategy import (
     DEFAULT_STRATEGY,
     StrategyConfig,
@@ -53,6 +55,15 @@ def simulate_portfolio(
     )
     spec = strategy_spec(strategy_name)
     if spec.portfolio_level:
+        if spec.key == "multi_factor_top":
+            return _simulate_multi_factor_top(
+                market,
+                initial_cash=initial_cash,
+                commission_rate=commission_rate,
+                config=config,
+                data_range=data_range,
+                interval=interval,
+            )
         return _simulate_momentum_rotation(
             market,
             strategy_name=spec.key,
@@ -73,6 +84,7 @@ def simulate_portfolio(
     latest_bar_times: dict[str, str] = {}
     latest_bar_times_et: dict[str, str] = {}
     sources: dict[str, str] = {}
+    all_trades = []
 
     for symbol, series in market.items():
         broker = PaperBroker(cash=allocation, commission_rate=commission_rate)
@@ -89,6 +101,7 @@ def simulate_portfolio(
         total_equity += final_equity
         total_cash += broker.cash
         total_trades += len(broker.trades)
+        all_trades.extend(broker.trades)
         all_positions.extend(broker.open_positions({symbol: last_price}))
 
         symbol_results[symbol] = {
@@ -126,6 +139,11 @@ def simulate_portfolio(
             },
             "market_session": market_session_info().to_dict(),
             "market_sessions": _market_sessions_payload(market),
+            "report": performance_report(
+                _aggregate_symbol_equity(symbol_results),
+                all_trades,
+                initial_cash=initial_cash,
+            ),
         },
         "symbols": symbol_results,
         "parameters": _parameters_payload(spec.key, config, commission_rate, data_range, interval),
@@ -254,6 +272,124 @@ def _simulate_momentum_rotation(
             },
             "market_session": market_session_info().to_dict(),
             "market_sessions": _market_sessions_payload(market),
+            "report": performance_report(equity_curve, broker.trades, initial_cash=initial_cash),
+        },
+        "symbols": symbol_results,
+        "parameters": _parameters_payload(spec.key, config, commission_rate, data_range, interval),
+    }
+
+
+def _simulate_multi_factor_top(
+    market: dict[str, MarketSeries],
+    *,
+    initial_cash: float,
+    commission_rate: float,
+    config: StrategyConfig,
+    data_range: str = "6mo",
+    interval: str = "1d",
+) -> dict[str, object]:
+    spec = strategy_spec("multi_factor_top")
+    broker = PaperBroker(cash=initial_cash, commission_rate=commission_rate)
+    points_by_symbol = {
+        symbol: generate_signals(series.bars, "momentum_rotation", config)
+        for symbol, series in market.items()
+    }
+    bars_by_symbol = {symbol: series.bars for symbol, series in market.items()}
+    max_points = min((len(points) for points in points_by_symbol.values()), default=0)
+    symbol_results: dict[str, dict[str, object]] = {}
+    equity_curve: list[EquityPoint] = []
+    factor_history: dict[str, list[dict[str, object]]] = {symbol: [] for symbol in market}
+    current_targets: set[str] = set()
+
+    for index in range(max_points):
+        prices = {symbol: points[index].close for symbol, points in points_by_symbol.items()}
+        factor_scores = compute_factor_scores(bars_by_symbol, index)
+        leaders = select_top_scores(factor_scores, config.top_n)
+        target_symbols = [leader.symbol for leader in leaders]
+        target_weights = volatility_inverse_weights(
+            bars_by_symbol,
+            target_symbols,
+            index,
+            max_weight=0.12,
+            cash_buffer=0.05,
+        )
+        target_set = set(target_weights)
+
+        for symbol, score in factor_scores.items():
+            factor_history[symbol].append(score.to_dict())
+
+        if target_set != current_targets:
+            for symbol in list(current_targets - target_set):
+                point = points_by_symbol[symbol][index]
+                broker.sell_all(symbol, point.close, point.time)
+                points_by_symbol[symbol][index] = _replace_signal(point, "sell", factor_scores.get(symbol))
+
+            current_equity = broker.equity(prices)
+            for symbol, weight in target_weights.items():
+                point = points_by_symbol[symbol][index]
+                target_value = current_equity * weight
+                current_value = broker.positions.get(symbol).market_value(point.close) if symbol in broker.positions else 0.0
+                budget = max(0.0, target_value - current_value)
+                if budget > 0:
+                    broker.buy_budget(symbol, point.close, point.time, budget)
+                    points_by_symbol[symbol][index] = _replace_signal(point, "buy", factor_scores.get(symbol))
+
+            current_targets = target_set
+
+        timestamp = next(iter(points_by_symbol.values()))[index].time
+        equity_curve.append(EquityPoint(timestamp, round(broker.equity(prices), 2)))
+
+    latest_prices = {symbol: points[-1].close for symbol, points in points_by_symbol.items() if points}
+    all_positions = broker.open_positions(latest_prices)
+    final_equity = broker.equity(latest_prices)
+
+    for symbol, series in market.items():
+        points = points_by_symbol[symbol]
+        last_price = points[-1].close if points else 0.0
+        symbol_trades = [trade for trade in broker.trades if trade.symbol == symbol]
+        symbol_results[symbol] = {
+            "source": series.source,
+            "exchange_timezone": series.exchange_timezone,
+            "initial_cash": round(initial_cash, 2),
+            "cash": round(broker.cash, 2),
+            "equity": round(final_equity, 2),
+            "pnl": round(final_equity - initial_cash, 2),
+            "daily_return_pct": round(((final_equity / initial_cash) - 1) * 100, 4),
+            "last_price": round(last_price, 4),
+            "latest_bar_time": points[-1].time if points else None,
+            "latest_bar_time_et": market_time_label(points[-1].time) if points else None,
+            "bars": [point.to_dict() for point in points],
+            "factor_scores": factor_history.get(symbol, []),
+            "trades": [trade.to_dict() for trade in symbol_trades],
+            "positions": [position for position in all_positions if position["symbol"] == symbol],
+            "equity_curve": [point.to_dict() for point in equity_curve],
+        }
+
+    return {
+        "portfolio": {
+            "initial_cash": round(initial_cash, 2),
+            "cash": round(broker.cash, 2),
+            "equity": round(final_equity, 2),
+            "pnl": round(final_equity - initial_cash, 2),
+            "daily_return_pct": round(((final_equity / initial_cash) - 1) * 100, 4),
+            "total_trades": len(broker.trades),
+            "positions": all_positions,
+            "latest_prices": {key: round(value, 4) for key, value in latest_prices.items()},
+            "latest_bar_times": {
+                symbol: points[-1].time for symbol, points in points_by_symbol.items() if points
+            },
+            "latest_bar_times_et": {
+                symbol: market_time_label(points[-1].time)
+                for symbol, points in points_by_symbol.items()
+                if points
+            },
+            "sources": {symbol: series.source for symbol, series in market.items()},
+            "exchange_timezones": {
+                symbol: series.exchange_timezone for symbol, series in market.items()
+            },
+            "market_session": market_session_info().to_dict(),
+            "market_sessions": _market_sessions_payload(market),
+            "report": performance_report(equity_curve, broker.trades, initial_cash=initial_cash),
         },
         "symbols": symbol_results,
         "parameters": _parameters_payload(spec.key, config, commission_rate, data_range, interval),
@@ -305,7 +441,26 @@ def _market_sessions_payload(market: dict[str, MarketSeries]) -> dict[str, dict[
     }
 
 
-def _replace_signal(point: StrategyPoint, signal: str) -> StrategyPoint:
+def _aggregate_symbol_equity(symbol_results: dict[str, dict[str, object]]) -> list[EquityPoint]:
+    if not symbol_results:
+        return []
+    curves = [
+        result.get("equity_curve", [])
+        for result in symbol_results.values()
+        if result.get("equity_curve")
+    ]
+    if not curves:
+        return []
+    length = min(len(curve) for curve in curves)
+    aggregate: list[EquityPoint] = []
+    for index in range(length):
+        timestamp = curves[0][index]["time"]
+        equity = sum(float(curve[index]["equity"]) for curve in curves)
+        aggregate.append(EquityPoint(timestamp, round(equity, 2)))
+    return aggregate
+
+
+def _replace_signal(point: StrategyPoint, signal: str, factor_score=None) -> StrategyPoint:
     return StrategyPoint(
         time=point.time,
         time_et=point.time_et,
@@ -325,4 +480,5 @@ def _replace_signal(point: StrategyPoint, signal: str) -> StrategyPoint:
         bb_upper=point.bb_upper,
         momentum=point.momentum,
         regime=point.regime,
+        factor_score=factor_score.total_score if factor_score is not None else point.factor_score,
     )

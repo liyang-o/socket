@@ -146,6 +146,14 @@ def fetch_intraday(symbol: str, data_range: str = "6mo", interval: str = "1d") -
         bars = []
         exchange_timezone = fallback_timezone
 
+    if len(bars) >= _min_required_bars(interval):
+        _save_cached_bars(normalized, bars, exchange_timezone, data_range, interval)
+        return MarketSeries(normalized, "yahoo", bars, exchange_timezone, data_range, interval)
+
+    cached_bars = _load_cached_bars(normalized, data_range, interval)
+    if len(cached_bars) >= _min_required_bars(interval):
+        return MarketSeries(normalized, "cache", cached_bars, fallback_timezone, data_range, interval)
+
     if len(bars) < _min_required_bars(interval):
         return MarketSeries(
             normalized,
@@ -391,3 +399,34 @@ def _range_to_daily_points(data_range: str) -> int:
 
 def _min_required_bars(interval: str) -> int:
     return 30 if _is_intraday_interval(interval) else 5
+
+
+def _save_cached_bars(
+    symbol: str,
+    bars: list[Bar],
+    exchange_timezone: str,
+    data_range: str,
+    interval: str,
+) -> None:
+    try:
+        from .storage import default_store
+
+        default_store().save_bars(
+            symbol,
+            bars,
+            source="yahoo",
+            exchange_timezone=exchange_timezone,
+            data_range=data_range,
+            interval=interval,
+        )
+    except OSError:
+        return
+
+
+def _load_cached_bars(symbol: str, data_range: str, interval: str) -> list[Bar]:
+    try:
+        from .storage import default_store
+
+        return default_store().load_bars(symbol, data_range=data_range, interval=interval)
+    except OSError:
+        return []

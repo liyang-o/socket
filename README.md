@@ -18,6 +18,19 @@
 | `dual_momentum` | 双动量轮动 | 组合级 | 先要求绝对动量为正，再选择相对动量最强标的 |
 | `trend_pullback` | 趋势过滤回调 | 混合 | 只在长期趋势向上时寻找 RSI/布林带短期回调 |
 | `regime_adaptive` | Regime 自适应 | 混合 | 在趋势、震荡均值回归和风险规避之间切换 |
+| `multi_factor_top` | 多因子 Top N | 组合级 | 综合动量、反转、低波、流动性和趋势因子，选择 Top N 并波动率加权 |
+
+## 机构化框架第一版
+
+本仓库新增了面向私募量化框架的第一版基础设施：
+
+- `storage.py`：SQLite 行情缓存。在线数据成功拉取后写入 `data/market_cache.sqlite`；在线失败时优先读取缓存，再退回样例数据。
+- `factors.py`：多因子打分。当前包含 60/120 日动量、20 日短期反转、低波动、流动性趋势和长期趋势过滤。
+- `multi_factor_top`：组合级多因子策略。横截面标准化后合成总分，选择正分 Top N，并用波动率倒数加权。
+- `metrics.py`：回测指标报告。返回总收益、最大回撤、Sharpe、波动率、胜率、Profit Factor、交易次数。
+- 风控雏形：多因子组合默认保留现金缓冲、单票权重上限、弱信号空仓，后续可扩展最大回撤熔断、换手率限制、行业约束和交易成本模型。
+
+这不是收益承诺，而是为了让系统具备未来实盘研究必需的结构：历史数据、因子、组合、风控、报告和复盘。
 
 ## 股票池和市场支持
 
@@ -105,6 +118,7 @@ QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 | `QUANT_SLOW` | `26` | Slow SMA 窗口 |
 | `QUANT_STRATEGY` | `sma_cross` | Pages 快照使用的策略 key |
 | `QUANT_UNIVERSE` | `custom` | 股票池 key |
+| `QUANT_TOP_N` | `10` | 组合级策略持仓数量 |
 | `QUANT_RANGE` | `6mo` | 历史数据范围 |
 | `QUANT_INTERVAL` | `1d` | K 线周期 |
 
@@ -150,6 +164,7 @@ curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&stra
 | `cash` | `100000` | 初始纸面资金 |
 | `fast` | `12` | 快速 SMA 窗口 |
 | `slow` | `26` | 慢速 SMA 窗口，必须大于 fast |
+| `top_n` | `10` | 多因子/组合级策略的目标持仓数量 |
 | `commission` | `0.001` | 单边手续费率 |
 | `range` | `6mo` | Yahoo chart range；历史策略建议 `6mo`、`1y` 或更长 |
 | `interval` | `1d` | Yahoo chart interval；可切换 `1d` 历史日线或 `1m`/`5m` 日内 |
@@ -165,6 +180,9 @@ curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&stra
 
 ```text
 quant_trader/
+  storage.py       # SQLite 行情缓存
+  factors.py       # 多因子打分
+  metrics.py       # 回测报告指标
   indicators.py    # SMA、RSI、布林带、动量等复用指标
   market_data.py   # 行情拉取与样例行情
   market_calendar.py # 美股交易日历、时区和常规时段

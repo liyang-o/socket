@@ -41,6 +41,7 @@ class QuantTraderHandler(SimpleHTTPRequestHandler):
             symbols = universe_symbols(universe) or parse_symbols(_first(params, "symbols", "AAPL,MSFT"))
             fast_window = _int_param(params, "fast", 12)
             slow_window = _int_param(params, "slow", 26)
+            top_n = _int_param(params, "top_n", 10)
             strategy_name = _first(params, "strategy", "sma_cross")
             initial_cash = _float_param(params, "cash", 100_000)
             commission_rate = _float_param(params, "commission", 0.001)
@@ -56,6 +57,7 @@ class QuantTraderHandler(SimpleHTTPRequestHandler):
                 initial_cash=initial_cash,
                 fast_window=fast_window,
                 slow_window=slow_window,
+                top_n=top_n,
                 strategy_name=strategy_name,
                 data_range=data_range,
                 interval=interval,

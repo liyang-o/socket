@@ -17,6 +17,7 @@ const els = {
   intervalInput: document.querySelector("#intervalInput"),
   fastInput: document.querySelector("#fastInput"),
   slowInput: document.querySelector("#slowInput"),
+  topNInput: document.querySelector("#topNInput"),
   runButton: document.querySelector("#runButton"),
   themeToggle: document.querySelector("#themeToggle"),
   autoRefresh: document.querySelector("#autoRefresh"),
@@ -25,6 +26,9 @@ const els = {
   returnMetric: document.querySelector("#returnMetric"),
   pnlMetric: document.querySelector("#pnlMetric"),
   tradesMetric: document.querySelector("#tradesMetric"),
+  drawdownMetric: document.querySelector("#drawdownMetric"),
+  sharpeMetric: document.querySelector("#sharpeMetric"),
+  winRateMetric: document.querySelector("#winRateMetric"),
   sourceBadge: document.querySelector("#sourceBadge"),
   updatedAt: document.querySelector("#updatedAt"),
   marketMeta: document.querySelector("#marketMeta"),
@@ -93,6 +97,7 @@ async function runSimulation(options = {}) {
     cash: els.cashInput.value,
     fast: els.fastInput.value,
     slow: els.slowInput.value,
+    top_n: els.topNInput.value,
   });
 
   try {
@@ -162,6 +167,7 @@ function syncControlsFromPayload(payload, mode) {
     els.cashInput.value = payload.portfolio.initial_cash;
     els.fastInput.value = parameters.fast_window || els.fastInput.value;
     els.slowInput.value = parameters.slow_window || els.slowInput.value;
+    els.topNInput.value = parameters.top_n || els.topNInput.value;
   }
 
   const isStatic = mode === "static";
@@ -174,6 +180,7 @@ function syncControlsFromPayload(payload, mode) {
     els.cashInput,
     els.fastInput,
     els.slowInput,
+    els.topNInput,
   ]) {
     input.disabled = isStatic;
     input.title = isStatic ? "GitHub Pages 静态模式下参数由 Actions 工作流生成" : "";
@@ -262,9 +269,14 @@ function renderMetrics(portfolio) {
   els.returnMetric.textContent = `${portfolio.daily_return_pct.toFixed(2)}%`;
   els.pnlMetric.textContent = money(portfolio.pnl);
   els.tradesMetric.textContent = portfolio.total_trades;
+  const report = portfolio.report || {};
+  els.drawdownMetric.textContent = `${(report.max_drawdown_pct || 0).toFixed(2)}%`;
+  els.sharpeMetric.textContent = (report.sharpe || 0).toFixed(2);
+  els.winRateMetric.textContent = `${(report.win_rate_pct || 0).toFixed(1)}%`;
 
   setTone(els.returnMetric, portfolio.daily_return_pct);
   setTone(els.pnlMetric, portfolio.pnl);
+  setTone(els.drawdownMetric, report.max_drawdown_pct || 0);
 }
 
 function renderSymbolOptions(symbols) {

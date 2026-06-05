@@ -19,8 +19,12 @@ on:
         description: "Slow SMA window"
         default: "26"
         required: false
+      top_n:
+        description: "Top N holdings for portfolio strategies"
+        default: "10"
+        required: false
       strategy:
-        description: "Strategy key: sma_cross, rsi_reversion, bollinger_reversion, hybrid_reversion, momentum_rotation"
+        description: "Strategy key, e.g. sma_cross, dual_momentum, regime_adaptive, multi_factor_top"
         default: "sma_cross"
         required: false
       universe:
@@ -73,6 +77,7 @@ jobs:
           INPUT_CASH: ${{ github.event.inputs.cash }}
           INPUT_FAST: ${{ github.event.inputs.fast }}
           INPUT_SLOW: ${{ github.event.inputs.slow }}
+          INPUT_TOP_N: ${{ github.event.inputs.top_n }}
           INPUT_STRATEGY: ${{ github.event.inputs.strategy }}
           INPUT_UNIVERSE: ${{ github.event.inputs.universe }}
           INPUT_RANGE: ${{ github.event.inputs.range }}
@@ -81,6 +86,7 @@ jobs:
           VAR_CASH: ${{ vars.QUANT_CASH }}
           VAR_FAST: ${{ vars.QUANT_FAST }}
           VAR_SLOW: ${{ vars.QUANT_SLOW }}
+          VAR_TOP_N: ${{ vars.QUANT_TOP_N }}
           VAR_STRATEGY: ${{ vars.QUANT_STRATEGY }}
           VAR_UNIVERSE: ${{ vars.QUANT_UNIVERSE }}
           VAR_RANGE: ${{ vars.QUANT_RANGE }}
@@ -90,6 +96,7 @@ jobs:
           CASH="${INPUT_CASH:-${VAR_CASH:-100000}}"
           FAST="${INPUT_FAST:-${VAR_FAST:-12}}"
           SLOW="${INPUT_SLOW:-${VAR_SLOW:-26}}"
+          TOP_N="${INPUT_TOP_N:-${VAR_TOP_N:-10}}"
           STRATEGY="${INPUT_STRATEGY:-${VAR_STRATEGY:-sma_cross}}"
           UNIVERSE="${INPUT_UNIVERSE:-${VAR_UNIVERSE:-custom}}"
           RANGE="${INPUT_RANGE:-${VAR_RANGE:-6mo}}"
@@ -100,6 +107,7 @@ jobs:
             --cash "$CASH" \
             --fast "$FAST" \
             --slow "$SLOW" \
+            --top-n "$TOP_N" \
             --strategy "$STRATEGY" \
             --universe "$UNIVERSE" \
             --range "$RANGE" \
