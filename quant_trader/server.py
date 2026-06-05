@@ -42,8 +42,8 @@ class QuantTraderHandler(SimpleHTTPRequestHandler):
             strategy_name = _first(params, "strategy", "sma_cross")
             initial_cash = _float_param(params, "cash", 100_000)
             commission_rate = _float_param(params, "commission", 0.001)
-            data_range = _first(params, "range", "1d")
-            interval = _first(params, "interval", "1m")
+            data_range = _first(params, "range", "6mo")
+            interval = _first(params, "interval", "1d")
 
             market = {
                 symbol: fetch_intraday(symbol, data_range=data_range, interval=interval)
@@ -55,6 +55,8 @@ class QuantTraderHandler(SimpleHTTPRequestHandler):
                 fast_window=fast_window,
                 slow_window=slow_window,
                 strategy_name=strategy_name,
+                data_range=data_range,
+                interval=interval,
                 commission_rate=commission_rate,
             )
         except ValueError as exc:

@@ -15,6 +15,9 @@
 | `bollinger_reversion` | 布林带均值回归 | 均值回归 | 区间震荡，价格偏离下轨后回归中轨 |
 | `hybrid_reversion` | RSI + 布林带混合 | 混合 | 同时用动量强弱和波动带过滤假信号 |
 | `momentum_rotation` | 多资产动量轮动 | 组合级 | 在多只股票中持有正动量最强标的 |
+| `dual_momentum` | 双动量轮动 | 组合级 | 先要求绝对动量为正，再选择相对动量最强标的 |
+| `trend_pullback` | 趋势过滤回调 | 混合 | 只在长期趋势向上时寻找 RSI/布林带短期回调 |
+| `regime_adaptive` | Regime 自适应 | 混合 | 在趋势、震荡均值回归和风险规避之间切换 |
 
 高 star、社区认可度较高的量化/回测项目经常用双均线交叉作为第一个教学策略：
 
@@ -77,11 +80,13 @@ QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.server
 | `QUANT_FAST` | `12` | Fast SMA 窗口 |
 | `QUANT_SLOW` | `26` | Slow SMA 窗口 |
 | `QUANT_STRATEGY` | `sma_cross` | Pages 快照使用的策略 key |
+| `QUANT_RANGE` | `6mo` | 历史数据范围 |
+| `QUANT_INTERVAL` | `1d` | K 线周期 |
 
 也可以本地生成同样的静态站点：
 
 ```bash
-QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA --strategy hybrid_reversion
+QUANT_TRADER_OFFLINE=1 python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA --strategy regime_adaptive --range 1y --interval 1d
 ```
 
 生成结果：
@@ -107,7 +112,7 @@ curl http://127.0.0.1:8000/api/health
 ### 运行模拟交易
 
 ```bash
-curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&strategy=momentum_rotation"
+curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&strategy=dual_momentum&range=1y&interval=1d"
 ```
 
 常用参数：
@@ -120,8 +125,15 @@ curl "http://127.0.0.1:8000/api/simulate?symbols=AAPL,MSFT,NVDA&cash=100000&stra
 | `fast` | `12` | 快速 SMA 窗口 |
 | `slow` | `26` | 慢速 SMA 窗口，必须大于 fast |
 | `commission` | `0.001` | 单边手续费率 |
-| `range` | `1d` | Yahoo chart range |
-| `interval` | `1m` | Yahoo chart interval |
+| `range` | `6mo` | Yahoo chart range；历史策略建议 `6mo`、`1y` 或更长 |
+| `interval` | `1d` | Yahoo chart interval；可切换 `1d` 历史日线或 `1m`/`5m` 日内 |
+
+网页状态卡会显示：
+
+- 当前交易状态。
+- 所选股票交易所时区的当前实际时间。
+- 最新行情 bar 的交易所本地时间。
+- 当前策略和数据周期。
 
 ## 项目结构
 

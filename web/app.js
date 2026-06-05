@@ -12,6 +12,8 @@ const els = {
   symbolsInput: document.querySelector("#symbolsInput"),
   cashInput: document.querySelector("#cashInput"),
   strategyInput: document.querySelector("#strategyInput"),
+  rangeInput: document.querySelector("#rangeInput"),
+  intervalInput: document.querySelector("#intervalInput"),
   fastInput: document.querySelector("#fastInput"),
   slowInput: document.querySelector("#slowInput"),
   runButton: document.querySelector("#runButton"),
@@ -84,6 +86,8 @@ async function runSimulation(options = {}) {
   const params = new URLSearchParams({
     symbols: els.symbolsInput.value,
     strategy: els.strategyInput.value,
+    range: els.rangeInput.value,
+    interval: els.intervalInput.value,
     cash: els.cashInput.value,
     fast: els.fastInput.value,
     slow: els.slowInput.value,
@@ -150,13 +154,23 @@ function syncControlsFromPayload(payload, mode) {
   if (mode === "static") {
     els.symbolsInput.value = symbols.join(",");
     els.strategyInput.value = parameters.strategy?.key || els.strategyInput.value;
+    els.rangeInput.value = parameters.range || els.rangeInput.value;
+    els.intervalInput.value = parameters.interval || els.intervalInput.value;
     els.cashInput.value = payload.portfolio.initial_cash;
     els.fastInput.value = parameters.fast_window || els.fastInput.value;
     els.slowInput.value = parameters.slow_window || els.slowInput.value;
   }
 
   const isStatic = mode === "static";
-  for (const input of [els.symbolsInput, els.strategyInput, els.cashInput, els.fastInput, els.slowInput]) {
+  for (const input of [
+    els.symbolsInput,
+    els.strategyInput,
+    els.rangeInput,
+    els.intervalInput,
+    els.cashInput,
+    els.fastInput,
+    els.slowInput,
+  ]) {
     input.disabled = isStatic;
     input.title = isStatic ? "GitHub Pages 静态模式下参数由 Actions 工作流生成" : "";
   }
@@ -188,15 +202,22 @@ function render() {
 
 function renderMarketTime(selected) {
   const session = state.data.portfolio.market_session || {};
-  const latestBar = selected.latest_bar_time_et || selected.bars.at(-1)?.time_et || "--";
+  const timezone = selectedTimezone(selected);
+  const latestBar = selected.bars.at(-1)?.time_local || selected.latest_bar_time_et || "--";
+  const currentExchangeTime = exchangeDateTimeLabel(new Date(), timezone);
   const modeText = state.mode === "static" ? "快照生成" : "本地刷新";
   const updatedAt = state.mode === "static"
     ? state.data.metadata?.generated_at_et || dateTimeLabel(state.data.metadata?.generated_at)
-    : etDateTimeLabel(new Date());
+    : exchangeDateTimeLabel(new Date(), timezone);
+  const range = state.data.parameters?.range || els.rangeInput.value;
+  const interval = state.data.parameters?.interval || els.intervalInput.value;
+  const statusText = timezone === session.timezone
+    ? marketStatusText(session)
+    : "未接入该交易所日历";
 
   els.updatedAt.textContent = `${modeText}: ${updatedAt}`;
-  els.marketMeta.textContent = `美股状态: ${marketStatusText(session)} · ${session.session_date || "--"}`;
-  els.latestBarMeta.textContent = `策略: ${strategyLabel()} · 最新行情 bar: ${latestBar}`;
+  els.marketMeta.textContent = `交易状态: ${statusText} · 当前实际时间: ${currentExchangeTime}`;
+  els.latestBarMeta.textContent = `策略: ${strategyLabel()} · 数据: ${range}/${interval} · 最新 bar: ${latestBar}`;
 }
 
 function marketStatusText(session) {
@@ -209,6 +230,17 @@ function marketStatusText(session) {
   const status = statusMap[session.status] || "未知";
   const close = session.close_time_et ? `，收盘 ${session.close_time_et}` : "";
   return `${status}${close}`;
+}
+
+function selectedTimezone(selected = null) {
+  const symbol = state.selectedSymbol;
+  return (
+    selected?.exchange_timezone ||
+    selected?.bars?.at(-1)?.timezone ||
+    state.data?.portfolio?.exchange_timezones?.[symbol] ||
+    state.data?.portfolio?.market_session?.timezone ||
+    "America/New_York"
+  );
 }
 
 function strategyLabel() {
@@ -520,11 +552,12 @@ function compactNumber(value) {
 
 function timeLabel(value) {
   return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "America/New_York",
+    timeZone: selectedTimezone(),
+    timeZoneName: "short",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(new Date(value)) + " ET";
+  }).format(new Date(value));
 }
 
 function dateTimeLabel(value) {
@@ -538,14 +571,20 @@ function dateTimeLabel(value) {
 }
 
 function etDateTimeLabel(value) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "America/New_York",
+  return exchangeDateTimeLabel(value, "America/New_York");
+}
+
+function exchangeDateTimeLabel(value, timezone) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: timezone || "America/New_York",
+    timeZoneName: "short",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(value) + " ET";
+  }).format(value);
+  return parts;
 }
 
 function setTone(element, value) {

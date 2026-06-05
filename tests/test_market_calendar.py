@@ -8,7 +8,7 @@ from quant_trader.market_calendar import (
     market_session_info,
     to_market_time,
 )
-from quant_trader.market_data import sample_intraday
+from quant_trader.market_data import sample_bars, sample_history, sample_intraday
 
 
 class MarketCalendarTests(unittest.TestCase):
@@ -39,6 +39,23 @@ class MarketCalendarTests(unittest.TestCase):
         self.assertEqual((first.hour, first.minute), (9, 30))
         self.assertEqual((last.hour, last.minute), (14, 0))
         self.assertTrue(all("ET" in bar.time_et for bar in bars))
+
+    def test_sample_history_uses_daily_trading_sessions(self) -> None:
+        bars = sample_history(
+            "AAPL",
+            points=40,
+            now=datetime(2026, 6, 4, 18, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(len(bars), 40)
+        self.assertIn("ET", bars[-1].time_et)
+        self.assertTrue(all(bar.time_local for bar in bars))
+
+    def test_sample_bars_chooses_history_for_daily_interval(self) -> None:
+        bars = sample_bars("AAPL", data_range="6mo", interval="1d")
+
+        self.assertGreater(len(bars), 100)
+        self.assertIn("ET", bars[-1].time_et)
 
 
 if __name__ == "__main__":

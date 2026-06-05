@@ -51,6 +51,9 @@ lower, middle, upper = Bollinger(close, 20, 2)
 | `bollinger_reversion` | 价格跌破布林下轨后，回归中轨附近退出 | 均值回归 |
 | `hybrid_reversion` | RSI 超卖 + 布林下轨过滤，减少单指标噪音 | 混合 |
 | `momentum_rotation` | 多资产按 lookback 动量排序，只持有正动量最强标的 | 组合级 |
+| `dual_momentum` | 先筛选正绝对动量，再选择相对动量最强标的 | 组合级 |
+| `trend_pullback` | 长期趋势向上时，只交易短期 RSI/布林带回调 | 混合 |
+| `regime_adaptive` | 依据动量、均线和波动切换趋势/震荡/风险规避 | 混合 |
 
 策略注册表在 `STRATEGY_SPECS` 中维护。新增策略时，一般只需要：
 
@@ -91,6 +94,8 @@ lower, middle, upper = Bollinger(close, 20, 2)
 
 对 `momentum_rotation` 这类组合级策略，模拟器使用一个组合账户，在多个股票之间轮动。普通策略和组合级策略共用同一个指标层、行情层和网页层。
 
+为了让策略更可靠，默认数据周期从单日分钟线升级为 `6mo/1d` 历史日线。日内演示仍可切换到 `1d/1m`，但 RSI、布林带、动量和 regime 判断都更适合在较长历史窗口上验证。
+
 ## 5. 网页可视化：`web/app.js`
 
 前端不依赖图表库，而是使用 SVG 手写绘图：
@@ -99,9 +104,10 @@ lower, middle, upper = Bollinger(close, 20, 2)
 - Close、Fast SMA、Slow SMA 分别用不同颜色显示。
 - 买入/卖出点用圆点标记。
 - 策略下拉框可切换 SMA、RSI、布林带、混合均值回归和动量轮动。
+- 历史范围和周期下拉框可切换 `6mo/1d`、`1y/1d` 或 `1d/1m`。
 - 本地服务模式每 60 秒自动刷新一次 `/api/simulate`。
 - GitHub Pages 模式每 60 秒重新读取一次 `data/latest.json` 快照。
-- 状态卡展示快照/刷新时间、最新行情 bar 的 ET 时间和美股市场状态。
+- 状态卡展示快照/刷新时间、所选股票交易所时区的当前实际时间、最新行情 bar 时间和交易状态。
 
 核心思路是把数据点映射到画布坐标：
 
@@ -142,7 +148,7 @@ python3 -m quant_trader.static_site --output public --symbols AAPL,MSFT,NVDA
 
 - Pages 展示的是最近一次 workflow 生成的快照，不是毫秒级实时流。
 - 交易时间更接近真实美股常规时段，但仍是“定时快照 + 纸面交易重算”，不是券商撮合回报。
-- 修改股票池和参数需要重新运行 workflow，或配置仓库变量 `QUANT_SYMBOLS`、`QUANT_CASH`、`QUANT_FAST`、`QUANT_SLOW`、`QUANT_STRATEGY`。
+- 修改股票池和参数需要重新运行 workflow，或配置仓库变量 `QUANT_SYMBOLS`、`QUANT_CASH`、`QUANT_FAST`、`QUANT_SLOW`、`QUANT_STRATEGY`、`QUANT_RANGE`、`QUANT_INTERVAL`。
 - 如果 GitHub Actions 运行时行情接口不可用，仍会使用样例行情兜底，页面会显示数据来源。
 
 ## 7. 如何运行

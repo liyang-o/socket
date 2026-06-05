@@ -33,6 +33,9 @@ class StrategyTests(unittest.TestCase):
         self.assertIn("bollinger_reversion", keys)
         self.assertIn("hybrid_reversion", keys)
         self.assertIn("momentum_rotation", keys)
+        self.assertIn("dual_momentum", keys)
+        self.assertIn("trend_pullback", keys)
+        self.assertIn("regime_adaptive", keys)
 
     def test_rsi_and_bollinger_indicators_emit_values(self) -> None:
         closes = [10, 9, 8, 9, 10, 11, 12, 11, 10, 9, 8, 9, 10, 11, 12, 13]
@@ -55,6 +58,13 @@ class StrategyTests(unittest.TestCase):
 
         self.assertTrue(any(point.rsi is not None for point in rsi_points))
         self.assertTrue(any(point.bb_lower is not None for point in bollinger_points))
+
+    def test_regime_strategy_emits_regime_labels(self) -> None:
+        bars = _bars_from_closes([10 + index * 0.1 for index in range(90)])
+
+        points = generate_signals(bars, "regime_adaptive")
+
+        self.assertTrue(any(point.regime is not None for point in points))
 
     def test_parse_symbols_normalizes_and_deduplicates(self) -> None:
         self.assertEqual(parse_symbols(" aapl,MSFT,aapl "), ["AAPL", "MSFT"])
@@ -93,6 +103,19 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(result["parameters"]["strategy"]["key"], "momentum_rotation")
         self.assertIn("available_strategies", result["parameters"])
         self.assertGreater(result["portfolio"]["equity"], 0)
+
+    def test_simulate_portfolio_records_data_range_and_interval(self) -> None:
+        series = MarketSeries("AAPL", "sample", sample_intraday("AAPL", points=80))
+
+        result = simulate_portfolio(
+            {"AAPL": series},
+            initial_cash=10_000,
+            data_range="1y",
+            interval="1d",
+        )
+
+        self.assertEqual(result["parameters"]["range"], "1y")
+        self.assertEqual(result["parameters"]["interval"], "1d")
 
 
 def _bars_from_closes(closes: list[float]) -> list[Bar]:

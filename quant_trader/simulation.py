@@ -29,6 +29,8 @@ def simulate_portfolio(
     bollinger_stddev: float = 2.0,
     momentum_window: int = 60,
     top_n: int = 1,
+    data_range: str = "6mo",
+    interval: str = "1d",
     commission_rate: float = 0.001,
 ) -> dict[str, object]:
     """Simulate each selected symbol, then aggregate the resulting account."""
@@ -53,9 +55,12 @@ def simulate_portfolio(
     if spec.portfolio_level:
         return _simulate_momentum_rotation(
             market,
+            strategy_name=spec.key,
             initial_cash=initial_cash,
             commission_rate=commission_rate,
             config=config,
+            data_range=data_range,
+            interval=interval,
         )
 
     allocation = initial_cash / len(market)
@@ -88,6 +93,7 @@ def simulate_portfolio(
 
         symbol_results[symbol] = {
             "source": series.source,
+            "exchange_timezone": series.exchange_timezone,
             "initial_cash": round(allocation, 2),
             "cash": round(broker.cash, 2),
             "equity": round(final_equity, 2),
@@ -115,10 +121,13 @@ def simulate_portfolio(
             "latest_bar_times": latest_bar_times,
             "latest_bar_times_et": latest_bar_times_et,
             "sources": sources,
+            "exchange_timezones": {
+                symbol: series.exchange_timezone for symbol, series in market.items()
+            },
             "market_session": market_session_info().to_dict(),
         },
         "symbols": symbol_results,
-        "parameters": _parameters_payload(spec.key, config, commission_rate),
+        "parameters": _parameters_payload(spec.key, config, commission_rate, data_range, interval),
     }
 
 
@@ -141,11 +150,14 @@ def _run_symbol(
 def _simulate_momentum_rotation(
     market: dict[str, MarketSeries],
     *,
+    strategy_name: str,
     initial_cash: float,
     commission_rate: float,
     config: StrategyConfig,
+    data_range: str = "6mo",
+    interval: str = "1d",
 ) -> dict[str, object]:
-    spec = strategy_spec("momentum_rotation")
+    spec = strategy_spec(strategy_name)
     broker = PaperBroker(cash=initial_cash, commission_rate=commission_rate)
     points_by_symbol = {
         symbol: generate_signals(series.bars, spec.key, config)
@@ -208,6 +220,7 @@ def _simulate_momentum_rotation(
         symbol_trades = [trade for trade in broker.trades if trade.symbol == symbol]
         symbol_results[symbol] = {
             "source": series.source,
+            "exchange_timezone": series.exchange_timezone,
             "initial_cash": round(initial_cash, 2),
             "cash": round(broker.cash, 2),
             "equity": round(final_equity, 2),
@@ -235,10 +248,13 @@ def _simulate_momentum_rotation(
             "latest_bar_times": latest_bar_times,
             "latest_bar_times_et": latest_bar_times_et,
             "sources": {symbol: series.source for symbol, series in market.items()},
+            "exchange_timezones": {
+                symbol: series.exchange_timezone for symbol, series in market.items()
+            },
             "market_session": market_session_info().to_dict(),
         },
         "symbols": symbol_results,
-        "parameters": _parameters_payload(spec.key, config, commission_rate),
+        "parameters": _parameters_payload(spec.key, config, commission_rate, data_range, interval),
     }
 
 
@@ -246,6 +262,8 @@ def _parameters_payload(
     strategy_name: str,
     config: StrategyConfig,
     commission_rate: float,
+    data_range: str,
+    interval: str,
 ) -> dict[str, object]:
     spec = strategy_spec(strategy_name)
     return {
@@ -260,6 +278,8 @@ def _parameters_payload(
         "bollinger_stddev": config.bollinger_stddev,
         "momentum_window": config.momentum_window,
         "top_n": config.top_n,
+        "range": data_range,
+        "interval": interval,
         "commission_rate": commission_rate,
     }
 
@@ -279,6 +299,8 @@ def _replace_signal(point: StrategyPoint, signal: str) -> StrategyPoint:
     return StrategyPoint(
         time=point.time,
         time_et=point.time_et,
+        time_local=point.time_local,
+        timezone=point.timezone,
         open=point.open,
         high=point.high,
         low=point.low,
@@ -292,4 +314,5 @@ def _replace_signal(point: StrategyPoint, signal: str) -> StrategyPoint:
         bb_middle=point.bb_middle,
         bb_upper=point.bb_upper,
         momentum=point.momentum,
+        regime=point.regime,
     )
